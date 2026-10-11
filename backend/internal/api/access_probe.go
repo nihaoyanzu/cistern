@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -130,26 +128,5 @@ func (s *Server) postAccessTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func newAccessProbeClient(proxyURL string, timeout time.Duration) *http.Client {
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.DisableCompression = true
-	tr.TLSHandshakeTimeout = timeout
-	tr.ResponseHeaderTimeout = timeout
-	tr.IdleConnTimeout = timeout
-	tr.DialContext = (&net.Dialer{Timeout: timeout}).DialContext
-	proxyURL = strings.TrimSpace(proxyURL)
-	if proxyURL == "" {
-		tr.Proxy = func(*http.Request) (*url.URL, error) { return nil, nil }
-	} else if u, err := url.Parse(proxyURL); err == nil && u.Scheme != "" && u.Host != "" {
-		tr.Proxy = http.ProxyURL(u)
-	}
-	return &http.Client{
-		Transport: tr,
-		Timeout:   timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
-	}
+	return platform.NewOutboundClient(proxyURL, timeout)
 }

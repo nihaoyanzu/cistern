@@ -98,7 +98,11 @@ func (p *MavenPlatform) ExpandPrefetchItem(env platform.PrefetchExpandEnv, item 
 		deps, _ := mavenhandler.ParsePomDependencies(string(body))
 		for _, d := range deps {
 			scope := strings.ToLower(strings.TrimSpace(d.Scope))
-			if scope != "" && scope != "compile" && scope != "runtime" {
+			pack := strings.ToLower(strings.TrimSpace(d.Packaging))
+			// 允许 import BOM / pom 包装；其余仅 compile/runtime/空 scope
+			if scope == "import" || pack == "pom" {
+				// ok
+			} else if scope != "" && scope != "compile" && scope != "runtime" {
 				continue
 			}
 			dk := d.String()

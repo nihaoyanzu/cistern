@@ -26,12 +26,15 @@ type cachedToken struct {
 	expiresAt time.Time
 }
 
-// NewTokenSource 创建换票客户端；httpClient 空则用带超时的默认客户端。
+// NewTokenSource 创建换票客户端；httpClient 空则用带超时的直连客户端（不读环境变量代理）。
+// 生产路径应传入遵守 MirrorHub UpstreamProxy 的客户端。
 func NewTokenSource(authBase, service string, httpClient *http.Client) *TokenSource {
 	authBase = strings.TrimRight(strings.TrimSpace(authBase), "/")
 	service = strings.TrimSpace(service)
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.Proxy = func(*http.Request) (*url.URL, error) { return nil, nil }
+		httpClient = &http.Client{Timeout: 30 * time.Second, Transport: tr}
 	}
 	return &TokenSource{
 		client:   httpClient,

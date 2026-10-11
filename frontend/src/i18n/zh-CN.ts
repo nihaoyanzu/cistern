@@ -208,8 +208,9 @@ export default {
     hintPypi: '支持 requirements.txt、多行 PEP 508，以及 pyproject.toml / Poetry 的 dependencies（含 optional / group）',
     placeholderPypi:
       'requests>=2.31.0\nnumpy==1.26.4\n# 或整份 requirements.txt / pyproject.toml\n# [project]\n# dependencies = ["httpx>=0.27"]',
-    hintNpm: '粘贴 package-lock.json / npm-shrinkwrap.json / pnpm-lock.yaml',
-    placeholderNpm: '{\n  "name": "app",\n  "lockfileVersion": 3,\n  ...\n}',
+    hintNpm: '粘贴 package.json，或 package-lock.json / npm-shrinkwrap.json / pnpm-lock.yaml',
+    placeholderNpm:
+      '{\n  "name": "app",\n  "dependencies": {\n    "lodash": "^4.17.21"\n  }\n}\n# 或整份 package-lock.json（lockfileVersion）',
     hintDocker: "每行一个镜像引用 image:tag（或 image{'@'}sha256:…）",
     placeholderDocker: 'library/nginx:1.27\nredis:7-alpine\n# 或 ghcr.io/owner/app:latest',
     hintGoproxy: '粘贴整份 go.mod 或 go.sum（仅展开文件中的显式版本）',
@@ -299,7 +300,7 @@ export default {
     moduleHuggingFace: 'Hugging Face',
     moduleMaven: 'Maven',
     npmUpstreamHint: 'registry 元数据与 tarball 上游；留空则使用默认官方源 https://registry.npmmirror.com',
-    npmPrefetchHint: 'npm 预取请在「预拉取」页粘贴 package-lock.json 或 pnpm-lock.yaml。',
+    npmPrefetchHint: 'npm 预取请在「预拉取」页粘贴 package.json，或 package-lock.json / pnpm-lock.yaml。',
     dockerUpstreamHint: 'Registry 上游（manifest 与 blob 共用）；留空则使用默认官方源 registry-1.docker.io。只读 pull-through，不支持登录与 push。',
     dockerPrefetchHint: '在「预拉取」页粘贴 image:tag 列表；离线前必须预取或完整 pull，仅启用模块不等于已缓存。',
     dockerArchHint: '预取将按所选平台映射架构（如 linux → linux/amd64）；选错架构会导致离线缺层。',

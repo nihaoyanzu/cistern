@@ -208,8 +208,9 @@ export default {
       'Supports requirements.txt, PEP 508 lines, and pyproject.toml / Poetry dependencies (including optional / groups)',
     placeholderPypi:
       'requests>=2.31.0\nnumpy==1.26.4\n# or a full requirements.txt / pyproject.toml\n# [project]\n# dependencies = ["httpx>=0.27"]',
-    hintNpm: 'Paste package-lock.json / npm-shrinkwrap.json / pnpm-lock.yaml',
-    placeholderNpm: '{\n  "name": "app",\n  "lockfileVersion": 3,\n  ...\n}',
+    hintNpm: 'Paste package.json, or package-lock.json / npm-shrinkwrap.json / pnpm-lock.yaml',
+    placeholderNpm:
+      '{\n  "name": "app",\n  "dependencies": {\n    "lodash": "^4.17.21"\n  }\n}\n# or a full package-lock.json (lockfileVersion)',
     hintDocker: "One image ref per line: image:tag (or image{'@'}sha256:…)",
     placeholderDocker: 'library/nginx:1.27\nredis:7-alpine\n# or ghcr.io/owner/app:latest',
     hintGoproxy: 'Paste a full go.mod or go.sum (only explicit versions in the file are expanded)',
@@ -300,7 +301,7 @@ export default {
     moduleMaven: 'Maven',
     npmUpstreamHint:
       'Registry metadata & tarball upstream; leave empty for the default official source https://registry.npmmirror.com',
-    npmPrefetchHint: 'For npm prefetch, paste package-lock.json or pnpm-lock.yaml on the Prefetch page.',
+    npmPrefetchHint: 'For npm prefetch, paste package.json, or package-lock.json / pnpm-lock.yaml on the Prefetch page.',
     dockerUpstreamHint:
       'Registry upstream (shared by manifests and blobs); leave empty for the default official registry-1.docker.io. Read-only pull-through (no login / push).',
     dockerPrefetchHint: 'Paste image:tag lists on Prefetch. Prefetch or full pull is required before offline use; enabling the module alone does not cache images.',

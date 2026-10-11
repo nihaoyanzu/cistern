@@ -45,7 +45,7 @@ func looksLikeForeignPrefetchBlob(s string) bool {
 	}
 	low := strings.ToLower(head)
 
-	// npm / pnpm lockfile
+	// npm / pnpm lockfile 或 package.json
 	if strings.Contains(low, `"lockfileversion"`) || strings.Contains(low, "lockfileversion:") {
 		return true
 	}
@@ -53,6 +53,11 @@ func looksLikeForeignPrefetchBlob(s string) bool {
 		return true
 	}
 	if strings.Contains(low, "packages:") && (strings.Contains(low, "resolution:") || strings.Contains(low, "specifier:")) {
+		return true
+	}
+	if strings.HasPrefix(strings.TrimSpace(s), "{") &&
+		(strings.Contains(low, `"dependencies"`) || strings.Contains(low, `"devdependencies"`)) &&
+		(strings.Contains(low, `"name"`) || strings.Contains(low, `"private"`)) {
 		return true
 	}
 

@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/livehl/mirrorhub/internal/config"
 	dockerhandler "github.com/livehl/mirrorhub/internal/handlers/docker"
+	"github.com/livehl/mirrorhub/internal/platform"
 )
 
 // DockerPlatform 实现 platform.Platform 及可选能力。
@@ -18,20 +20,25 @@ type DockerPlatform struct {
 	src    *dockerhandler.TokenSource
 	auth   string
 	svc    string
+	proxy  string
 }
 
 func (p *DockerPlatform) tokens(cfg config.Config) *dockerhandler.TokenSource {
 	pcfg := cfg.Platforms["docker"]
 	authBase := strings.TrimSpace(pcfg.MetadataUpstream)
 	svc := dockerhandler.AuthServiceFromRegistry(pcfg.Upstream)
+	proxy := strings.TrimSpace(cfg.Server.UpstreamProxy)
 	p.authMu.Lock()
 	defer p.authMu.Unlock()
-	if p.src != nil && p.auth == authBase && p.svc == svc {
+	if p.src != nil && p.auth == authBase && p.svc == svc && p.proxy == proxy {
 		return p.src
 	}
-	p.src = dockerhandler.NewTokenSource(authBase, svc, nil)
+	// 换票必须走与下载器一致的出站代理；nil 客户端会直连 auth.docker.io
+	client := platform.NewOutboundClient(proxy, 30*time.Second)
+	p.src = dockerhandler.NewTokenSource(authBase, svc, client)
 	p.auth = authBase
 	p.svc = svc
+	p.proxy = proxy
 	return p.src
 }
 

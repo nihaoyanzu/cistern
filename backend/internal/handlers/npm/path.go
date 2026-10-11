@@ -1,4 +1,4 @@
-// Package npm 提供 npm registry 路径识别与 lockfile 解析。
+// Package npm 提供 npm registry 路径识别、lockfile / package.json 解析。
 package npm
 
 import (

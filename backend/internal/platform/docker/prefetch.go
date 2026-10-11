@@ -3,6 +3,7 @@ package docker
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -41,7 +42,8 @@ func (p *DockerPlatform) ExpandPrefetchItem(env platform.PrefetchExpandEnv, item
 	}
 	archs := dockerhandler.DefaultTargetArchs(env.Cfg.Scheduler.Prefetch.TargetPlatformList())
 	tokens := p.tokens(env.Cfg)
-	blobs, manifests, err := dockerhandler.ResolveBlobURLs(env.Ctx, nil, tokens, reg, ref, archs)
+	client := platform.NewOutboundClient(strings.TrimSpace(env.Cfg.Server.UpstreamProxy), 60*time.Second)
+	blobs, manifests, err := dockerhandler.ResolveBlobURLs(env.Ctx, client, tokens, reg, ref, archs)
 	if err != nil {
 		return nil, err
 	}
