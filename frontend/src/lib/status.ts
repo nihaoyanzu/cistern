@@ -3,6 +3,7 @@
 export function statusKey(s: string): string {
   switch (s) {
     case 'running': return 'status.running'
+    case 'preparing': return 'status.preparing'
     case 'done': return 'status.done'
     case 'error': return 'status.error'
     case 'cancelled': return 'status.cancelled'
@@ -13,6 +14,7 @@ export function statusKey(s: string): string {
 
 export function statusClass(s: string): string {
   if (s === 'running') return 'ui-badge-ok'
+  if (s === 'preparing') return 'ui-badge-warn'
   if (s === 'error') return 'ui-badge-danger'
   if (s === 'cancelled') return 'ui-badge-warn'
   if (s === 'queued') return 'ui-badge'
@@ -36,15 +38,21 @@ export function prioKey(p: string): string {
 
 export function cacheKey(c: string): string {
   const v = (c || '').toLowerCase()
-  if (v === 'hit' || v === 'stale' || v === 'revalidated') return 'status.hit'
+  if (v === 'hit') return 'status.hit'
+  if (v === 'stale') return 'status.stale'
+  if (v === 'revalidated') return 'status.revalidated'
   if (v === 'miss') return 'status.miss'
+  if (v === 'timeout') return 'status.timeout'
+  if (v === 'cancelled') return 'status.cancelled'
   if (v === 'na' || !v) return '-'
   return c
 }
 
 export function cacheClass(c: string): string {
   const v = (c || '').toLowerCase()
-  if (v === 'hit' || v === 'stale' || v === 'revalidated') return 'ui-badge-ok'
-  if (v === 'miss') return 'ui-badge-warn'
+  if (v === 'hit' || v === 'revalidated') return 'ui-badge-ok'
+  if (v === 'stale') return 'ui-badge-warn'
+  if (v === 'miss' || v === 'timeout') return 'ui-badge-warn'
+  if (v === 'cancelled') return 'ui-badge-muted'
   return 'ui-badge-muted'
 }

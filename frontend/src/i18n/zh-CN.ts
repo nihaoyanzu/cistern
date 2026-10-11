@@ -205,23 +205,23 @@ export default {
     hint: '按侧栏所选模块粘贴对应规格',
     settingsLink: '模块上游与策略',
     placeholder: '',
-    hintPypi: '支持 requirements.txt、多行 PEP 508，以及 pyproject.toml / Poetry 的 dependencies（含 optional / group）',
+    hintPypi: '支持 requirements.txt、PEP 508、pyproject.toml、poetry.lock、uv.lock、Pipfile',
     placeholderPypi:
-      'requests>=2.31.0\nnumpy==1.26.4\n# 或整份 requirements.txt / pyproject.toml\n# [project]\n# dependencies = ["httpx>=0.27"]',
-    hintNpm: '粘贴 package.json，或 package-lock.json / npm-shrinkwrap.json / pnpm-lock.yaml',
+      'requests>=2.31.0\nnumpy==1.26.4\n# 或 requirements / pyproject.toml / poetry.lock / uv.lock / Pipfile',
+    hintNpm: '粘贴 package.json，或 package-lock.json / yarn.lock / pnpm-lock.yaml',
     placeholderNpm:
-      '{\n  "name": "app",\n  "dependencies": {\n    "lodash": "^4.17.21"\n  }\n}\n# 或整份 package-lock.json（lockfileVersion）',
-    hintDocker: "每行一个镜像引用 image:tag（或 image{'@'}sha256:…）",
-    placeholderDocker: 'library/nginx:1.27\nredis:7-alpine\n# 或 ghcr.io/owner/app:latest',
+      '{\n  "name": "app",\n  "dependencies": {\n    "lodash": "^4.17.21"\n  }\n}\n# 或 package-lock.json / yarn.lock / pnpm-lock.yaml',
+    hintDocker: '每行一个 image:tag，或粘贴 compose.yaml（services.*.image）',
+    placeholderDocker: 'library/nginx:1.27\nredis:7-alpine\n# 或 compose：\n# services:\n#   web:\n#     image: nginx:1.27',
     hintGoproxy: '粘贴整份 go.mod 或 go.sum（仅展开文件中的显式版本）',
     placeholderGoproxy: 'module example.com/app\n\ngo 1.22\n\nrequire (\n\tgolang.org/x/sync v0.8.0\n)',
     hintHuggingFace:
       "每行一个 Hub 仓库：owner/repo；数据集加 datasets/ 前缀；修订用 {'@'}rev。将按 tree 展开仓库内全部文件。",
     placeholderHuggingFace:
       "openai/clip-vit-base-patch32\ngoogle-bert/bert-base-uncased{'@'}main\ndatasets/squad\n# 或 https://huggingface.co/gpt2",
-    hintMaven: '粘贴 pom.xml、gradle.properties（值为 GAV），或多行 group:artifact:version',
+    hintMaven: '粘贴 pom.xml、build.gradle、libs.versions.toml、gradle.properties，或多行 GAV',
     placeholderMaven:
-      'junit:junit:4.13.2\norg.slf4j:slf4j-api:2.0.16\n# 或整份 pom.xml\n# 或 gradle.properties：\n# gson=com.google.code.gson:gson:2.10.1',
+      'junit:junit:4.13.2\n# 或 pom.xml / build.gradle / libs.versions.toml / gradle.properties',
     submitting: '提交中…',
     taskList: '预取任务',
     noTasks: '暂无预拉取',
@@ -302,13 +302,13 @@ export default {
     moduleMaven: 'Maven',
     npmUpstreamHint: 'registry 元数据与 tarball 上游；留空则使用默认官方源 https://registry.npmmirror.com',
     npmPrefetchHint: 'npm 预取请在「预拉取」页粘贴 package.json，或 package-lock.json / pnpm-lock.yaml。',
-    dockerUpstreamHint: 'Registry 上游（manifest 与 blob 共用）；留空则使用默认官方源 registry-1.docker.io。只读 pull-through，不支持登录与 push。',
+    dockerUpstreamHint: 'Registry 上游（manifest 与 blob 共用）；留空则使用默认官方源 https://docker.m.daocloud.io。只读 pull-through，不支持登录与 push。',
     dockerPrefetchHint: '在「预拉取」页粘贴 image:tag 列表；离线前必须预取或完整 pull，仅启用模块不等于已缓存。',
     dockerArchHint: '预取将按所选平台映射架构（如 linux → linux/amd64）；选错架构会导致离线缺层。',
     goproxyUpstreamHint:
       'Module / 文件 / SumDB 共用此上游；留空则使用默认官方源 https://goproxy.cn。只读缓存，不代理私有模块鉴权。',
     goproxyPrefetchHint: '在「预拉取」页粘贴 go.mod 或 go.sum；仅展开文件中显式版本，完整闭包可用 go mod download 经本代理灌满。',
-    huggingfaceUpstreamHint: 'Hub 上游；留空则使用默认官方源 https://huggingface.co。公开仓匿名，gated 在下方填组织 Token。',
+    huggingfaceUpstreamHint: 'Hub 上游；留空则使用默认官方源 https://hf-mirror.com。公开仓匿名，gated 在下方填组织 Token。',
     huggingfacePrefetchHint:
       "在「预拉取」页粘贴 owner/repo 或 datasets/owner/repo（可 {'@'}revision）；将按 tree 展开全部文件。",
     mavenUpstreamHint: 'Maven2 仓库上游（索引与制品共用）；留空则使用默认官方源阿里云 central。只读缓存，不支持 deploy。',
@@ -447,6 +447,7 @@ export default {
   },
   status: {
     running: '运行中',
+    preparing: '准备中',
     done: '已完成',
     error: '失败',
     cancelled: '已取消',
@@ -456,7 +457,10 @@ export default {
     p1Resume: 'P1 恢复',
     p2Prefetch: 'P2 预取',
     hit: '命中',
+    stale: '过期命中',
+    revalidated: '已续期',
     miss: '未命中',
+    timeout: '超时',
   },
   toast: {
     loggedOut: '已退出登录',

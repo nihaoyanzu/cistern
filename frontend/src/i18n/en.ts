@@ -204,24 +204,23 @@ export default {
     hint: 'Paste specs for the module selected in the sidebar',
     settingsLink: 'Module upstream & policy',
     placeholder: '',
-    hintPypi:
-      'Supports requirements.txt, PEP 508 lines, and pyproject.toml / Poetry dependencies (including optional / groups)',
+    hintPypi: 'Paste requirements.txt, PEP 508, pyproject.toml, poetry.lock, uv.lock, or Pipfile',
     placeholderPypi:
-      'requests>=2.31.0\nnumpy==1.26.4\n# or a full requirements.txt / pyproject.toml\n# [project]\n# dependencies = ["httpx>=0.27"]',
-    hintNpm: 'Paste package.json, or package-lock.json / npm-shrinkwrap.json / pnpm-lock.yaml',
+      'requests>=2.31.0\nnumpy==1.26.4\n# or requirements / pyproject.toml / poetry.lock / uv.lock / Pipfile',
+    hintNpm: 'Paste package.json, or package-lock.json / yarn.lock / pnpm-lock.yaml',
     placeholderNpm:
-      '{\n  "name": "app",\n  "dependencies": {\n    "lodash": "^4.17.21"\n  }\n}\n# or a full package-lock.json (lockfileVersion)',
-    hintDocker: "One image ref per line: image:tag (or image{'@'}sha256:…)",
-    placeholderDocker: 'library/nginx:1.27\nredis:7-alpine\n# or ghcr.io/owner/app:latest',
+      '{\n  "name": "app",\n  "dependencies": {\n    "lodash": "^4.17.21"\n  }\n}\n# or package-lock.json / yarn.lock / pnpm-lock.yaml',
+    hintDocker: 'One image:tag per line, or paste compose.yaml (services.*.image)',
+    placeholderDocker: 'library/nginx:1.27\nredis:7-alpine\n# or compose:\n# services:\n#   web:\n#     image: nginx:1.27',
     hintGoproxy: 'Paste a full go.mod or go.sum (only explicit versions in the file are expanded)',
     placeholderGoproxy: 'module example.com/app\n\ngo 1.22\n\nrequire (\n\tgolang.org/x/sync v0.8.0\n)',
     hintHuggingFace:
       "One Hub repo per line: owner/repo; prefix datasets/ for datasets; use {'@'}rev for revision. Expands all files via the repo tree.",
     placeholderHuggingFace:
       "openai/clip-vit-base-patch32\ngoogle-bert/bert-base-uncased{'@'}main\ndatasets/squad\n# or https://huggingface.co/gpt2",
-    hintMaven: 'Paste a pom.xml, gradle.properties (GAV values), or one group:artifact:version per line',
+    hintMaven: 'Paste pom.xml, build.gradle, libs.versions.toml, gradle.properties, or GAV lines',
     placeholderMaven:
-      'junit:junit:4.13.2\norg.slf4j:slf4j-api:2.0.16\n# or a full pom.xml\n# or gradle.properties:\n# gson=com.google.code.gson:gson:2.10.1',
+      'junit:junit:4.13.2\n# or pom.xml / build.gradle / libs.versions.toml / gradle.properties',
     submitting: 'Submitting…',
     taskList: 'Prefetch Tasks',
     noTasks: 'No prefetch tasks',
@@ -304,14 +303,14 @@ export default {
       'Registry metadata & tarball upstream; leave empty for the default official source https://registry.npmmirror.com',
     npmPrefetchHint: 'For npm prefetch, paste package.json, or package-lock.json / pnpm-lock.yaml on the Prefetch page.',
     dockerUpstreamHint:
-      'Registry upstream (shared by manifests and blobs); leave empty for the default official registry-1.docker.io. Read-only pull-through (no login / push).',
+      'Registry upstream (shared by manifests and blobs); leave empty for the default official https://docker.m.daocloud.io. Read-only pull-through (no login / push).',
     dockerPrefetchHint: 'Paste image:tag lists on Prefetch. Prefetch or full pull is required before offline use; enabling the module alone does not cache images.',
     dockerArchHint: 'Prefetch maps selected platforms to arches (e.g. linux → linux/amd64). Wrong arch means missing layers offline.',
     goproxyUpstreamHint:
       'Module / files / SumDB share this upstream; leave empty for the default official source https://goproxy.cn. Read-only, no private module auth.',
     goproxyPrefetchHint: 'Paste go.mod or go.sum on Prefetch. Only explicit versions are expanded; use go mod download via this proxy to fill the full graph.',
     huggingfaceUpstreamHint:
-      'Hub upstream; leave empty for the default official https://huggingface.co. Public repos anonymous; gated needs org Token below.',
+      'Hub upstream; leave empty for the default official https://hf-mirror.com. Public repos anonymous; gated needs org Token below.',
     huggingfacePrefetchHint:
       "Paste owner/repo or datasets/owner/repo (optional {'@'}revision) on Prefetch; all files are expanded via tree API.",
     mavenUpstreamHint:
@@ -453,6 +452,7 @@ export default {
   },
   status: {
     running: 'Running',
+    preparing: 'Preparing',
     done: 'Done',
     error: 'Error',
     cancelled: 'Cancelled',
@@ -462,7 +462,10 @@ export default {
     p1Resume: 'P1 Resume',
     p2Prefetch: 'P2 Prefetch',
     hit: 'Hit',
+    stale: 'Stale',
+    revalidated: 'Revalidated',
     miss: 'Miss',
+    timeout: 'Timeout',
   },
   toast: {
     loggedOut: 'Logged out',

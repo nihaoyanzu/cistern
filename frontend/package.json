@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vue/devtools-api": "^8.1.5",
     "clipboard-copy": "^4.0.1",
     "pinia": "^4.0.3",
     "vue": "^3.5.41",
