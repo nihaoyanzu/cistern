@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"html"
 	"net/url"
 	"regexp"
 	"strings"
@@ -16,6 +17,9 @@ var hrefAttrRe = regexp.MustCompile(`(?i)(href=["'])([^"']+)(["'])`)
 
 // wheelLinkRe 匹配包含 .whl 链接的 <a> 标签，用于注入 PEP 658 data-dist-info-metadata。
 var wheelLinkRe = regexp.MustCompile(`(?i)(<a\s[^>]*href=["'][^"']+\.whl(?:#[^"']*)?["'][^>]*)(\s*>)`)
+
+// requiresPythonAttrRe 用于把上游 HTML 实体（&gt;=）还原，避免 uv 解析 requires-python 失败。
+var requiresPythonAttrRe = regexp.MustCompile(`(?i)(data-requires-python=["'])([^"']*)(["'])`)
 
 // PublicBaseURL 对外访问根（请求期内由代理按访问 Host 填入 PublicHost）。
 func PublicBaseURL(cfg config.Config) string {
@@ -89,6 +93,23 @@ func RewriteURLs(body []byte, contentType string, cfg config.Config) []byte {
 		b.Write(sub[1])
 		b.WriteString(` data-dist-info-metadata="true"`)
 		b.Write(sub[2])
+		return b.Bytes()
+	})
+	// 上游 simple 常把 >= 写成 &gt;=；uv 按字面解析会跳过全部版本。
+	out = requiresPythonAttrRe.ReplaceAllFunc(out, func(m []byte) []byte {
+		sub := requiresPythonAttrRe.FindSubmatch(m)
+		if len(sub) < 4 {
+			return m
+		}
+		raw := string(sub[2])
+		unescaped := html.UnescapeString(raw)
+		if unescaped == raw {
+			return m
+		}
+		var b bytes.Buffer
+		b.Write(sub[1])
+		b.WriteString(unescaped)
+		b.Write(sub[3])
 		return b.Bytes()
 	})
 	return EnsureHTML5Document(out)
@@ -325,7 +346,7 @@ func parseHTMLAttrs(s string) map[string]string {
 		if val == "" {
 			val = m[4]
 		}
-		out[key] = val
+		out[key] = html.UnescapeString(val)
 	}
 	return out
 }

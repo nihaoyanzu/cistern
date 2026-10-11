@@ -17,15 +17,56 @@ func LookLikeGoMod(text string) bool {
 		return false
 	}
 	// go.sum 行 dense，优先排除
-	if LookLikeGoSum(s) && !strings.Contains(s, "\nmodule ") && !strings.HasPrefix(s, "module ") {
+	if LookLikeGoSum(s) && !hasGoModModuleDirective(s) {
 		return false
 	}
-	head := s
-	if len(head) > 400 {
-		head = head[:400]
+	// Gradle Version Catalog 含 `module = "..."`，不能当 go.mod
+	lowFull := strings.ToLower(s)
+	if strings.Contains(lowFull, "[libraries]") &&
+		(strings.Contains(lowFull, "[versions]") || strings.Contains(lowFull, "module")) {
+		return false
 	}
-	low := strings.ToLower(head)
-	return strings.Contains(low, "module ") || strings.Contains(low, "\nrequire ") || strings.HasPrefix(low, "require ")
+	return hasGoModModuleDirective(s) || hasGoModRequireDirective(s)
+}
+
+// hasGoModModuleDirective 识别 go.mod 的 `module path` 行（排除 `module =` 赋值）。
+func hasGoModModuleDirective(text string) bool {
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		if !strings.HasPrefix(line, "module ") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		if rest == "" || strings.HasPrefix(rest, "=") {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// hasGoModRequireDirective 识别 go.mod 的 require 指令。
+func hasGoModRequireDirective(text string) bool {
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		if line == "require (" || strings.HasPrefix(line, "require (") {
+			return true
+		}
+		if strings.HasPrefix(line, "require ") {
+			rest := strings.TrimSpace(strings.TrimPrefix(line, "require "))
+			// 排除偶然出现的 require = ...
+			if rest != "" && !strings.HasPrefix(rest, "=") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // LookLikeGoSum 粗判是否为 go.sum（hash 行）。

@@ -88,11 +88,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	hasSize := false
 	// SkipUpstreamHead：交互冷路径跳过上游 HEAD；HF 等需 CL 校验的不设此标志
 	skipHead := m.SkipUpstreamHead && !prefetch
-	// 交互路径在 HEAD / 等任务槽之前就标 running，避免 P0 长时间显示「排队中」
-	// （槽位仍由 downloader.AcquireTask 约束；MarkRunning 对非 queued 幂等）
-	if !prefetch && onAcquired != nil {
-		onAcquired()
-	}
+	// 交互路径：Begin 时已 MarkPreparing；真正占槽下载时由 OnAcquired→MarkRunning
 	if !skipHead {
 		hs, headCT, finalURL, headErr := s.dl.Head(r.Context(), origURL, headers)
 		if headErr == nil {
@@ -250,5 +246,5 @@ func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *
 		return label, "cache", err
 	}
 	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	return "na", "cache", fmt.Errorf("method not allowed")
+	return "miss", "cache", fmt.Errorf("method not allowed")
 }

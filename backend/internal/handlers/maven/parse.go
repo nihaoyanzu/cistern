@@ -53,7 +53,8 @@ func LookLikePom(text string) bool {
 // LookLikeGAVList 粗判是否为多行 g:a:v（Gradle/Maven 坐标列表）。
 func LookLikeGAVList(text string) bool {
 	s := strings.TrimSpace(text)
-	if s == "" || LookLikePom(s) || LookLikeGradleProperties(s) {
+	if s == "" || LookLikePom(s) || LookLikeGradleProperties(s) ||
+		LookLikeBuildGradle(s) || LookLikeLibsVersionsTOML(s) {
 		return false
 	}
 	lines, hits := 0, 0
@@ -74,7 +75,7 @@ func LookLikeGAVList(text string) bool {
 // 仅含开关/版本号、没有任何 GAV 值的 properties 不会命中。
 func LookLikeGradleProperties(text string) bool {
 	s := strings.TrimSpace(text)
-	if s == "" || LookLikePom(s) {
+	if s == "" || LookLikePom(s) || LookLikeBuildGradle(s) || LookLikeLibsVersionsTOML(s) {
 		return false
 	}
 	propLines, gavHits := 0, 0

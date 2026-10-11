@@ -54,7 +54,7 @@ func RewritePackument(body []byte, cfg config.Config) []byte {
 	return out
 }
 
-// ExtractTarballDigests 从 packument 提取 tarball URL 与 sha512 integrity（仅记录 sha512- 前缀供后续扩展；当前下载器以 SHA256 为主，此处暂不 Remember）。
+// ExtractTarballDigests 从 packument 提取 tarball URL 与 SRI integrity（多为 sha512-…）。
 // 返回 map[tarballURL]integrity。
 func ExtractTarballDigests(body []byte) map[string]string {
 	out := map[string]string{}

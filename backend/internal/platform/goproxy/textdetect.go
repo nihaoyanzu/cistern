@@ -20,6 +20,9 @@ func (p *GoproxyPlatform) ParsePrefetchText(text string) (platform.TextDetectRes
 		for _, ref := range refs {
 			items = append(items, ref.Path+"@"+ref.Version)
 		}
+		if len(items) == 0 {
+			return platform.TextDetectResult{Skipped: skip, Kind: "go_sum"}, false
+		}
 		return platform.TextDetectResult{Items: items, Skipped: skip, Kind: "go_sum"}, true
 	}
 	if goproxyhandler.LookLikeGoMod(text) {
@@ -27,6 +30,9 @@ func (p *GoproxyPlatform) ParsePrefetchText(text string) (platform.TextDetectRes
 		items := make([]string, 0, len(refs))
 		for _, ref := range refs {
 			items = append(items, ref.Path+"@"+ref.Version)
+		}
+		if len(items) == 0 {
+			return platform.TextDetectResult{Skipped: skip, Kind: "go_mod"}, false
 		}
 		return platform.TextDetectResult{Items: items, Skipped: skip, Kind: "go_mod"}, true
 	}

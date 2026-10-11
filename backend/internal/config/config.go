@@ -355,8 +355,8 @@ func defaultRuntime() RuntimeSettings {
 			},
 			"docker": {
 				Enabled:          true,
-				Upstream:         "https://registry-1.docker.io",
-				FileUpstream:     "https://registry-1.docker.io",
+				Upstream:         "https://docker.m.daocloud.io",
+				FileUpstream:     "https://docker.m.daocloud.io",
 				MetadataUpstream: "https://auth.docker.io",
 				Download: DownloadConfig{
 					Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024,
@@ -373,8 +373,8 @@ func defaultRuntime() RuntimeSettings {
 			},
 			"huggingface": {
 				Enabled:      true,
-				Upstream:     "https://huggingface.co",
-				FileUpstream: "https://huggingface.co",
+				Upstream:     "https://hf-mirror.com",
+				FileUpstream: "https://hf-mirror.com",
 				Download: DownloadConfig{
 					Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024,
 				},
@@ -503,7 +503,7 @@ func defaultPlatformSeed(id string) PlatformConfig {
 		}
 	case "docker":
 		return PlatformConfig{
-			Enabled: true, Upstream: "https://registry-1.docker.io", FileUpstream: "https://registry-1.docker.io",
+			Enabled: true, Upstream: "https://docker.m.daocloud.io", FileUpstream: "https://docker.m.daocloud.io",
 			MetadataUpstream: "https://auth.docker.io", Download: dl,
 		}
 	case "goproxy":
@@ -513,7 +513,7 @@ func defaultPlatformSeed(id string) PlatformConfig {
 		}
 	case "huggingface":
 		return PlatformConfig{
-			Enabled: true, Upstream: "https://huggingface.co", FileUpstream: "https://huggingface.co", Download: dl,
+			Enabled: true, Upstream: "https://hf-mirror.com", FileUpstream: "https://hf-mirror.com", Download: dl,
 		}
 	case "maven":
 		return PlatformConfig{

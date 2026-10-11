@@ -3,10 +3,13 @@ package cache
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -501,15 +504,15 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 	if strings.TrimSpace(meta.SourceURL) == "" || strings.TrimSpace(meta.Kind) == "" {
 		return nil, fmt.Errorf("cache meta requires source_url and kind")
 	}
-	if meta.Digest != "" {
-		sum, err := fileSHA256Hex(srcPath)
+	// 入库摘要统一为 sha256 hex；npm SRI（sha512-/sha256-）先校验再换算，避免 Put 把 SRI 当 hex 比对失败。
+	digestHex := ""
+	if strings.TrimSpace(meta.Digest) != "" {
+		sum, err := verifyAndNormalizeDigest(srcPath, meta.Digest)
 		if err != nil {
+			_ = os.Remove(srcPath)
 			return nil, err
 		}
-		if !strings.EqualFold(sum, meta.Digest) {
-			_ = os.Remove(srcPath)
-			return nil, fmt.Errorf("sha256 mismatch: want %s got %s", meta.Digest, sum)
-		}
+		digestHex = sum
 	}
 
 	m.mu.Lock()
@@ -529,8 +532,8 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 		return nil, err
 	}
 	etag := ""
-	if meta.Digest != "" {
-		etag = `"` + strings.ToLower(meta.Digest) + `"`
+	if digestHex != "" {
+		etag = `"` + digestHex + `"`
 	} else {
 		etag = fmt.Sprintf(`W/"%d-%d"`, info.Size(), time.Now().Unix())
 	}
@@ -544,7 +547,7 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 		TTLSeconds:   ttlSeconds,
 		SourceURL:    meta.SourceURL,
 		Kind:         meta.Kind,
-		Digest:       strings.ToLower(meta.Digest),
+		Digest:       digestHex,
 		ETag:         etag,
 		UpstreamETag: meta.UpstreamETag,
 	}
@@ -917,5 +920,56 @@ func fileSHA256Hex(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fileDigestBase64(path string, h hash.Hash) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
+}
+
+// verifyAndNormalizeDigest 校验期望摘要（裸 sha256 hex / SRI），成功后返回用于入库的小写 sha256 hex。
+func verifyAndNormalizeDigest(path, expected string) (string, error) {
+	exp := strings.TrimSpace(expected)
+	if exp == "" {
+		return "", nil
+	}
+	sumHex, err := fileSHA256Hex(path)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case strings.HasPrefix(exp, "sha512-"):
+		sum, err := fileDigestBase64(path, sha512.New())
+		if err != nil {
+			return "", err
+		}
+		want := strings.TrimPrefix(exp, "sha512-")
+		if sum != want {
+			return "", fmt.Errorf("sha512 mismatch: want %s got %s", want, sum)
+		}
+		return sumHex, nil
+	case strings.HasPrefix(exp, "sha256-"):
+		sum, err := fileDigestBase64(path, sha256.New())
+		if err != nil {
+			return "", err
+		}
+		want := strings.TrimPrefix(exp, "sha256-")
+		if sum != want {
+			return "", fmt.Errorf("sha256 mismatch: want %s got %s", want, sum)
+		}
+		return sumHex, nil
+	default:
+		if !strings.EqualFold(sumHex, exp) {
+			return "", fmt.Errorf("sha256 mismatch: want %s got %s", exp, sumHex)
+		}
+		return strings.ToLower(sumHex), nil
+	}
 }
 

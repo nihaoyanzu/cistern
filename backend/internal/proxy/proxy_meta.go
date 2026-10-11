@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/livehl/mirrorhub/internal/cache"
 	"github.com/livehl/mirrorhub/internal/config"
@@ -93,7 +94,14 @@ func serveMetadataHead(w http.ResponseWriter, entry *cache.Entry, boost bool, ca
 		w.Header().Set("X-Mirrorhub-Boost", "1")
 	}
 	w.WriteHeader(http.StatusOK)
-	return "hit", nil
+	switch strings.ToUpper(cacheLabel) {
+	case "STALE":
+		return "stale", nil
+	case "REVALIDATED":
+		return "revalidated", nil
+	default:
+		return "hit", nil
+	}
 }
 
 // handleIndexFallbackProxy 非 GET 的简单透传（仍占任务槽+限速）
@@ -101,7 +109,7 @@ func (s *Server) handleIndexFallbackProxy(w http.ResponseWriter, r *http.Request
 	release, err := s.acquireProxyTask(r.Context(), m.Platform, boost, onAcquired)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusGatewayTimeout)
-		return "na", err
+		return cacheLabelForErr(err), err
 	}
 	defer release()
 	headers := platform.FilterRequestHeaders(r.Header)

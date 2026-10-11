@@ -2,9 +2,12 @@ package downloader
 
 import (
 	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"net/url"
 	"os"
@@ -15,7 +18,8 @@ import (
 	"time"
 )
 
-// digests 记录索引里见到的 cleanURL / basename -> sha256 hex
+// digests 记录索引里见到的 cleanURL / basename -> 摘要
+// 值为 64 位 sha256 hex，或 SRI（sha256-… / sha512-…）。
 var digests sync.Map
 
 var (
@@ -44,11 +48,40 @@ func loadDigestsFile() {
 		return
 	}
 	for k, v := range m {
-		if k == "" || len(v) != 64 {
+		if k == "" || !validStoredDigest(v) {
 			continue
 		}
-		digests.Store(k, strings.ToLower(v))
+		digests.Store(k, normalizeStoredDigest(v))
 	}
+}
+
+func validStoredDigest(v string) bool {
+	v = strings.TrimSpace(v)
+	if len(v) == 64 && isHex64(v) {
+		return true
+	}
+	return strings.HasPrefix(v, "sha256-") || strings.HasPrefix(v, "sha512-")
+}
+
+func normalizeStoredDigest(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) == 64 && isHex64(v) {
+		return strings.ToLower(v)
+	}
+	return v
+}
+
+func isHex64(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func scheduleDigestSave() {
@@ -96,25 +129,43 @@ func flushDigests() {
 
 func RememberDigest(rawURL, sha256hex string) {
 	sha256hex = strings.ToLower(strings.TrimSpace(sha256hex))
-	if sha256hex == "" || len(sha256hex) != 64 {
+	if sha256hex == "" || len(sha256hex) != 64 || !isHex64(sha256hex) {
 		return
 	}
+	storeDigest(rawURL, sha256hex)
+}
+
+// RememberIntegrity 记录 npm SRI（sha512-… / sha256-…）或裸 sha256 hex。
+func RememberIntegrity(rawURL, integrity string) {
+	integrity = strings.TrimSpace(integrity)
+	if integrity == "" {
+		return
+	}
+	if len(integrity) == 64 && isHex64(integrity) {
+		RememberDigest(rawURL, integrity)
+		return
+	}
+	if strings.HasPrefix(integrity, "sha256-") || strings.HasPrefix(integrity, "sha512-") {
+		storeDigest(rawURL, integrity)
+	}
+}
+
+func storeDigest(rawURL, value string) {
 	clean := stripFragment(rawURL)
-	if clean == "" {
+	if clean == "" || value == "" {
 		return
 	}
-	digests.Store(clean, sha256hex)
+	digests.Store(clean, value)
 	if u, err := url.Parse(clean); err == nil {
 		base := path.Base(u.Path)
 		if base != "" && base != "." && base != "/" {
-			digests.Store(base, sha256hex)
+			digests.Store(base, value)
 		}
-		// 无 query 的 URL 也记一份
 		u.RawQuery = ""
 		u.Fragment = ""
-		digests.Store(u.String(), sha256hex)
+		digests.Store(u.String(), value)
 	} else if base := path.Base(clean); base != "" {
-		digests.Store(base, sha256hex)
+		digests.Store(base, value)
 	}
 	scheduleDigestSave()
 }
@@ -164,20 +215,50 @@ func (opt *Options) resolveExpectedDigest() {
 }
 
 func verifyAndRemember(path string, opt Options) error {
-	if opt.ExpectedSHA256 == "" {
+	exp := strings.TrimSpace(opt.ExpectedSHA256)
+	if exp == "" {
 		return nil
 	}
-	sum, err := fileSHA256(path)
-	if err != nil {
-		return err
+	switch {
+	case strings.HasPrefix(exp, "sha512-"):
+		sum, err := fileDigestBase64(path, sha512.New())
+		if err != nil {
+			return err
+		}
+		want := strings.TrimPrefix(exp, "sha512-")
+		if sum != want {
+			_ = os.Remove(path)
+			return fmt.Errorf("sha512 mismatch: want %s got %s", want, sum)
+		}
+		RememberIntegrity(opt.metaSource(), exp)
+		RememberIntegrity(opt.URL, exp)
+		return nil
+	case strings.HasPrefix(exp, "sha256-"):
+		sum, err := fileDigestBase64(path, sha256.New())
+		if err != nil {
+			return err
+		}
+		want := strings.TrimPrefix(exp, "sha256-")
+		if sum != want {
+			_ = os.Remove(path)
+			return fmt.Errorf("sha256 mismatch: want %s got %s", want, sum)
+		}
+		RememberIntegrity(opt.metaSource(), exp)
+		RememberIntegrity(opt.URL, exp)
+		return nil
+	default:
+		sum, err := fileSHA256(path)
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(sum, exp) {
+			_ = os.Remove(path)
+			return fmt.Errorf("sha256 mismatch: want %s got %s", exp, sum)
+		}
+		RememberDigest(opt.metaSource(), sum)
+		RememberDigest(opt.URL, sum)
+		return nil
 	}
-	if !strings.EqualFold(sum, opt.ExpectedSHA256) {
-		_ = os.Remove(path)
-		return fmt.Errorf("sha256 mismatch: want %s got %s", opt.ExpectedSHA256, sum)
-	}
-	RememberDigest(opt.metaSource(), sum)
-	RememberDigest(opt.URL, sum)
-	return nil
 }
 
 func fileSHA256(path string) (string, error) {
@@ -191,4 +272,16 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func fileDigestBase64(path string, h hash.Hash) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }

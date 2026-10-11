@@ -479,7 +479,8 @@ func (s *Server) postPrefetch(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				res, ok := det.ParsePrefetchText(body.Text)
-				if !ok {
+				if !ok || len(res.Items) == 0 {
+					// 误匹配且无有效条目时继续尝试下一检测器
 					continue
 				}
 				items = append(items, res.Items...)

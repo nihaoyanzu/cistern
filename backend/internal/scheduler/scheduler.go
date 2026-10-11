@@ -133,8 +133,8 @@ func (s *Scheduler) Begin(platform, rawURL string, prio Priority, boost, holdInt
 	return id
 }
 
-// MarkRunning 将 queued 任务推进为 running，并记录开始时间（用于 wait_ms）。
-func (s *Scheduler) MarkRunning(id string) {
+// MarkPreparing 将 queued 推进为 preparing（HEAD/鉴权/建连），交互路径避免长时间显示「排队中」。
+func (s *Scheduler) MarkPreparing(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t, ok := s.tasks[id]
@@ -145,10 +145,35 @@ func (s *Scheduler) MarkRunning(id string) {
 		return
 	}
 	now := time.Now()
-	t.Status = "running"
-	t.StartedAt = now
+	t.Status = "preparing"
 	t.UpdatedAt = now
-	t.WaitMs = now.Sub(t.QueuedAt).Milliseconds()
+	if t.StartedAt.IsZero() {
+		t.StartedAt = now
+		t.WaitMs = now.Sub(t.QueuedAt).Milliseconds()
+	}
+	s.refreshTaskMetricsLocked()
+}
+
+// MarkRunning 将 queued/preparing 推进为 running（已占槽并开始传数据）。
+func (s *Scheduler) MarkRunning(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok || t == nil {
+		return
+	}
+	if t.Status != "queued" && t.Status != "preparing" {
+		return
+	}
+	now := time.Now()
+	t.Status = "running"
+	if t.StartedAt.IsZero() {
+		t.StartedAt = now
+		t.WaitMs = now.Sub(t.QueuedAt).Milliseconds()
+	} else if t.WaitMs <= 0 {
+		t.WaitMs = now.Sub(t.QueuedAt).Milliseconds()
+	}
+	t.UpdatedAt = now
 	s.refreshTaskMetricsLocked()
 }
 
@@ -166,7 +191,7 @@ func (s *Scheduler) UpdateProgress(id string, done, total int64) {
 	if !ok || t == nil {
 		return
 	}
-	if t.Status != "queued" && t.Status != "running" {
+	if t.Status != "queued" && t.Status != "preparing" && t.Status != "running" {
 		return
 	}
 	now := time.Now()
@@ -297,13 +322,13 @@ func (s *Scheduler) pausePrefetchIfNeeded(platform string) {
 	s.cancelResumeTimer()
 	if pl := s.limiters.Get(platform); pl != nil {
 		if changed := pl.SetPrefetchPaused(true); changed {
-			metrics.PrefetchPaused.Set(1)
+			s.refreshPrefetchPausedMetric()
 			s.log.Info("prefetch paused due to interactive traffic", zap.String("platform", platform))
 		}
-		// 只把「运行中」的 P2 标成 P1（被打断的在途任务）；排队中的仍保持 P2，避免 P1 膨胀
+		// 只把「运行中/准备中」的 P2 标成 P1（被打断的在途任务）；排队中的仍保持 P2，避免 P1 膨胀
 		s.mu.Lock()
 		for _, t := range s.tasks {
-			if t == nil || t.Status != "running" {
+			if t == nil || (t.Status != "running" && t.Status != "preparing") {
 				continue
 			}
 			if t.Priority == PriorityPrefetch.String() {
@@ -345,7 +370,7 @@ func (s *Scheduler) resumeCountLocked() int64 {
 		if t.Priority != PriorityResume.String() {
 			continue
 		}
-		if t.Status == "queued" || t.Status == "running" {
+		if t.Status == "queued" || t.Status == "preparing" || t.Status == "running" {
 			n++
 		}
 	}
@@ -378,25 +403,35 @@ func (s *Scheduler) applyPrefetchResume() {
 		name, _ := snap["platform"].(string)
 		if pl := s.limiters.Get(name); pl != nil {
 			if pl.SetPrefetchPaused(false) {
-				metrics.PrefetchPaused.Set(0)
 				if s.log != nil {
 					s.log.Info("prefetch resumed after interactive idle", zap.String("platform", name))
 				}
 			}
 		}
 	}
+	s.refreshPrefetchPausedMetric()
+}
+
+func (s *Scheduler) refreshPrefetchPausedMetric() {
+	var n float64
+	for _, snap := range s.limiters.Snapshots() {
+		if paused, _ := snap["prefetch_paused"].(bool); paused {
+			n++
+		}
+	}
+	metrics.PrefetchPaused.Set(n)
 }
 
 func (s *Scheduler) InteractiveActive() int64 {
 	return s.p0Active.Load()
 }
 
-	// ResumeCount 当前仍活跃（queued/running）的 P1 恢复任务数，非历史累计。
-	func (s *Scheduler) ResumeCount() int64 {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		return s.resumeCountLocked()
-	}
+// ResumeCount 当前仍活跃（queued/preparing/running）的 P1 恢复任务数，非历史累计。
+func (s *Scheduler) ResumeCount() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.resumeCountLocked()
+}
 
 func (s *Scheduler) List() []TaskInfo {
 	s.mu.Lock()
@@ -414,7 +449,7 @@ func (s *Scheduler) List() []TaskInfo {
 				if cp.WaitMs <= 0 {
 					cp.WaitMs = cp.StartedAt.Sub(cp.QueuedAt).Milliseconds()
 				}
-				if cp.Status == "running" {
+				if cp.Status == "running" || cp.Status == "preparing" {
 					cp.ElapsedMs = now.Sub(cp.StartedAt).Milliseconds()
 				} else {
 					end := cp.UpdatedAt
@@ -453,7 +488,7 @@ func (s *Scheduler) CancelPrefetch(idOrURL string) (taskURL string, ok bool) {
 		s.releaseActiveLocked(t)
 	}
 	if t, found := s.tasks[idOrURL]; found {
-		if (t.Status == "running" || t.Status == "queued") && isPrefetchCancellable(t.Priority) {
+		if (t.Status == "running" || t.Status == "preparing" || t.Status == "queued") && isPrefetchCancellable(t.Priority) {
 			mark(t)
 			taskURL, ok = t.URL, true
 		}
@@ -466,7 +501,7 @@ func (s *Scheduler) CancelPrefetch(idOrURL string) (taskURL string, ok bool) {
 			if !isPrefetchCancellable(tt.Priority) {
 				continue
 			}
-			if tt.Status != "running" && tt.Status != "queued" {
+			if tt.Status != "running" && tt.Status != "preparing" && tt.Status != "queued" {
 				continue
 			}
 			mark(tt)

@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -35,7 +36,8 @@ type PlatformLimiter struct {
 
 type Registry struct {
 	mu        sync.RWMutex
-	global    *PlatformLimiter
+	byName    map[string]*PlatformLimiter
+	cfg       config.RateLimitConfig
 	idleRatio float64
 }
 
@@ -53,11 +55,16 @@ func init() {
 
 func NewRegistry(cfg config.RateLimitConfig, idleRatio float64) *Registry {
 	r := &Registry{
-		global:    newPlatformLimiter("global", cfg),
+		byName:    map[string]*PlatformLimiter{},
+		cfg:       cfg,
 		idleRatio: idleRatio,
 	}
 	if r.idleRatio <= 0 {
 		r.idleRatio = 0.3
+	}
+	// 预创建常用平台，便于 stats 一开始就有条目
+	for _, name := range []string{"pypi", "npm", "docker", "goproxy", "huggingface", "maven"} {
+		r.byName[name] = newPlatformLimiter(name, cfg)
 	}
 	return r
 }
@@ -136,21 +143,37 @@ func resizeSem(held, capacity int) chan struct{} {
 	return ch
 }
 
-func (r *Registry) Get(_ string) *PlatformLimiter {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.global
+func (r *Registry) Get(platform string) *PlatformLimiter {
+	platform = normalizePlatformName(platform)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if lim, ok := r.byName[platform]; ok {
+		return lim
+	}
+	lim := newPlatformLimiter(platform, r.cfg)
+	r.byName[platform] = lim
+	return lim
 }
 
-// Update 原地热更新。不可换新 limiter：否则旧任务仍占旧槽，新槽又放行一批（20→10 却跑到 ~30）。
+func normalizePlatformName(platform string) string {
+	if platform == "" {
+		return "other"
+	}
+	return platform
+}
+
+// Update 原地热更新各平台 limiter。
 func (r *Registry) Update(cfg config.RateLimitConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.global == nil {
-		r.global = newPlatformLimiter("global", cfg)
+	r.cfg = cfg
+	if len(r.byName) == 0 {
+		r.byName["other"] = newPlatformLimiter("other", cfg)
 		return
 	}
-	r.global.ApplyConfig(cfg)
+	for _, lim := range r.byName {
+		lim.ApplyConfig(cfg)
+	}
 }
 
 // ApplyConfig 保留 active* 与 prefetchPaused；收窄上限时不杀旧任务，只挡住超额新启动。
@@ -210,10 +233,10 @@ func (r *Registry) IdleRatio() float64 {
 	return r.idleRatio
 }
 
-// AcquireTask 获取任务槽。
-// boost：小文件插队池；interactive：交互下载（非预取）。
-// 预取被 P0 pause 时仍可能占着槽位停读，此时交互允许短暂超额占槽，避免 P0 饿死被客户端掐断。
+// AcquireTask 获取任务槽。boost：小文件插队池；interactive：交互下载（非预取）。
+// 预取 pause 时应由 downloader 释放槽位；交互走正常/boost 池，不再超额占槽。
 func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost, interactive bool) error {
+	_ = interactive
 	for {
 		p.mu.Lock()
 		maxTask := p.cfg.MaxConcurrent
@@ -227,16 +250,9 @@ func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost, interactive bo
 		}
 
 		ok := false
-		paused := p.prefetchPaused
 		if boost {
 			if p.activeBoost < maxBoost {
 				p.activeBoost++
-				p.activeTasks++
-				ok = true
-			}
-		} else if interactive && paused {
-			// pause 期间预取占坑不放行：交互可超额到 maxTask+maxBoost
-			if p.activeTasks < maxTask+maxBoost {
 				p.activeTasks++
 				ok = true
 			}
@@ -435,7 +451,6 @@ func (p *PlatformLimiter) WaitStats() (p50, p95 float64, n int) {
 		return 0, 0, 0
 	}
 	cp := append([]float64(nil), p.waitSamples...)
-	// 简单选择排序取分位
 	for i := 0; i < len(cp); i++ {
 		for j := i + 1; j < len(cp); j++ {
 			if cp[j] < cp[i] {
@@ -489,8 +504,14 @@ func (p *PlatformLimiter) Snapshot() map[string]any {
 func (r *Registry) Snapshots() []map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.global == nil {
-		return nil
+	names := make([]string, 0, len(r.byName))
+	for name := range r.byName {
+		names = append(names, name)
 	}
-	return []map[string]any{r.global.Snapshot()}
+	sort.Strings(names)
+	out := make([]map[string]any, 0, len(names))
+	for _, name := range names {
+		out = append(out, r.byName[name].Snapshot())
+	}
+	return out
 }

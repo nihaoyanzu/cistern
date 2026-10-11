@@ -18,5 +18,8 @@ func (p *HuggingFacePlatform) ParsePrefetchText(text string) (platform.TextDetec
 		return platform.TextDetectResult{}, false
 	}
 	parsed, skip := hfhandler.ParseRepoList(text)
+	if len(parsed) == 0 {
+		return platform.TextDetectResult{Skipped: skip, Kind: "hf_repo"}, false
+	}
 	return platform.TextDetectResult{Items: parsed, Skipped: skip, Kind: "hf_repo"}, true
 }

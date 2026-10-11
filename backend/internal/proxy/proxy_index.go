@@ -22,7 +22,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 	release, err := s.acquireProxyTask(r.Context(), m.Platform, boost, onAcquired)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusGatewayTimeout)
-		return "na", err
+		return cacheLabelForErr(err), err
 	}
 	defer release()
 
@@ -242,7 +242,7 @@ func (s *Server) serveRevalidated(w http.ResponseWriter, r *http.Request, result
 		w.Header().Set("ETag", tr.ETag)
 		w.Header().Set("X-Cache", "REVALIDATED")
 		w.WriteHeader(http.StatusNotModified)
-		return "hit", nil
+		return "revalidated", nil
 	}
 	w.Header().Set("Content-Type", tr.ContentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(tr.Body)))
@@ -256,7 +256,7 @@ func (s *Server) serveRevalidated(w http.ResponseWriter, r *http.Request, result
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(tr.Body)
 	}
-	return "hit", nil
+	return "revalidated", nil
 }
 
 // serveCachedIndex 从缓存响应索引请求（ETag/304、URL 改写）
@@ -268,18 +268,22 @@ func (s *Server) serveCachedIndex(w http.ResponseWriter, r *http.Request, entry 
 	data, err := os.ReadFile(entry.FilePath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return "na", err
+		return cacheLabelForErr(err), err
 	}
 	data, _ = platform.MaybeGunzip(data)
 	accept := r.Header.Get("Accept")
 	ct := indexContentType(plat, entry.ContentType, accept, data)
 	rememberIndexDigests(data, entry.SourceURL)
 	tr := plat.TransformIndex(data, ct, cfg, accept, entry.SourceURL)
+	label := strings.ToLower(cacheLabel)
+	if label == "" {
+		label = "hit"
+	}
 	if matchETag(r.Header.Get("If-None-Match"), tr.ETag) {
 		w.Header().Set("ETag", tr.ETag)
 		w.Header().Set("X-Cache", cacheLabel)
 		w.WriteHeader(http.StatusNotModified)
-		return "hit", nil
+		return label, nil
 	}
 	w.Header().Set("Content-Type", tr.ContentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(tr.Body)))
@@ -293,7 +297,7 @@ func (s *Server) serveCachedIndex(w http.ResponseWriter, r *http.Request, entry 
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(tr.Body)
 	}
-	return "hit", nil
+	return label, nil
 }
 
 func indexContentType(plat platform.Platform, upstreamCT, accept string, body []byte) string {

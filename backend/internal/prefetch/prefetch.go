@@ -116,7 +116,7 @@ func platformNameForItem(item string) string {
 	if p := platform.LookupPrefetchOwner(item); p != nil {
 		return p.Name()
 	}
-	return "pypi"
+	return "unknown"
 }
 
 func platformForURL(cfg config.Config, rawURL string) (platform.Platform, config.PlatformConfig) {

@@ -12,11 +12,14 @@ const textDetectPriorityPyPI = 0
 
 func (p *PyPIPlatform) TextDetectPriority() int { return textDetectPriorityPyPI }
 
-// LookLikePrefetchText 仅认 requirements / PEP 508；异平台格式用本包启发式排除，不依赖其它 handler。
+// LookLikePrefetchText 认 requirements / PEP 508 / poetry.lock / uv.lock / Pipfile；异平台格式排除。
 func (p *PyPIPlatform) LookLikePrefetchText(text string) bool {
 	s := strings.TrimSpace(text)
 	if s == "" {
 		return false
+	}
+	if pypihandler.LookLikePoetryLock(s) || pypihandler.LookLikeUVLock(s) || pypihandler.LookLikePipfile(s) {
+		return true
 	}
 	if looksLikeForeignPrefetchBlob(s) {
 		return false
@@ -45,8 +48,20 @@ func looksLikeForeignPrefetchBlob(s string) bool {
 	}
 	low := strings.ToLower(head)
 
-	// npm / pnpm lockfile 或 package.json
-	if strings.Contains(low, `"lockfileversion"`) || strings.Contains(low, "lockfileversion:") {
+	// yarn / npm / pnpm lockfile 或 package.json
+	if strings.Contains(low, "# yarn lockfile") || strings.Contains(low, `"lockfileversion"`) || strings.Contains(low, "lockfileversion:") {
+		return true
+	}
+	// docker compose
+	if strings.Contains(low, "services:") && strings.Contains(low, "image:") {
+		return true
+	}
+	// gradle build / version catalog
+	if strings.Contains(low, "[libraries]") && (strings.Contains(low, "[versions]") || strings.Contains(low, "module")) {
+		return true
+	}
+	if strings.Contains(low, "implementation") && strings.Count(s, ":") >= 2 &&
+		(strings.Contains(low, "dependencies") || strings.Contains(low, "plugins")) {
 		return true
 	}
 	if strings.Contains(low, `"node_modules/"`) && strings.Contains(low, `"packages"`) {
@@ -217,9 +232,34 @@ func looksLikeHFRepoLine(line string) bool {
 }
 
 func (p *PyPIPlatform) ParsePrefetchText(text string) (platform.TextDetectResult, bool) {
+	s := strings.TrimSpace(text)
+	if pypihandler.LookLikePoetryLock(s) {
+		parsed, skip := pypihandler.ParsePoetryOrUVLock(s)
+		if len(parsed) == 0 {
+			return platform.TextDetectResult{Skipped: skip, Kind: "pypi_poetry_lock"}, false
+		}
+		return platform.TextDetectResult{Items: parsed, Skipped: skip, Kind: "pypi_poetry_lock"}, true
+	}
+	if pypihandler.LookLikeUVLock(s) {
+		parsed, skip := pypihandler.ParsePoetryOrUVLock(s)
+		if len(parsed) == 0 {
+			return platform.TextDetectResult{Skipped: skip, Kind: "pypi_uv_lock"}, false
+		}
+		return platform.TextDetectResult{Items: parsed, Skipped: skip, Kind: "pypi_uv_lock"}, true
+	}
+	if pypihandler.LookLikePipfile(s) {
+		parsed, skip := pypihandler.ParsePipfile(s)
+		if len(parsed) == 0 {
+			return platform.TextDetectResult{Skipped: skip, Kind: "pypi_pipfile"}, false
+		}
+		return platform.TextDetectResult{Items: parsed, Skipped: skip, Kind: "pypi_pipfile"}, true
+	}
 	if !p.LookLikePrefetchText(text) {
 		return platform.TextDetectResult{}, false
 	}
 	parsed, skip := pypihandler.ParseDependencyText(text)
+	if len(parsed) == 0 {
+		return platform.TextDetectResult{Skipped: skip, Kind: "pypi_req"}, false
+	}
 	return platform.TextDetectResult{Items: parsed, Skipped: skip, Kind: "pypi_req"}, true
 }

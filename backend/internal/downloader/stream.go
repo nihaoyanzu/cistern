@@ -120,9 +120,13 @@ func serveCached(w http.ResponseWriter, entry *cache.Entry, boost bool, rangeHea
 	if cacheLabel == "" {
 		cacheLabel = "HIT"
 	}
+	accessLabel := strings.ToLower(cacheLabel)
+	if accessLabel == "" {
+		accessLabel = "hit"
+	}
 	f, err := os.Open(entry.FilePath)
 	if err != nil {
-		return "na", err
+		return "miss", err
 	}
 	defer f.Close()
 	ct := entry.ContentType
@@ -150,23 +154,23 @@ func serveCached(w http.ResponseWriter, entry *cache.Entry, boost bool, rangeHea
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", entry.Size))
 		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 		// 已向客户端完成 416，不记为任务失败
-		return "hit", nil
+		return accessLabel, nil
 	}
 	if ok {
 		if _, err := f.Seek(start, io.SeekStart); err != nil {
-			return "hit", err
+			return accessLabel, err
 		}
 		length := end - start + 1
 		w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, entry.Size))
 		w.WriteHeader(http.StatusPartialContent)
 		_, err = copyFlushN(w, f, length)
-		return "hit", err
+		return accessLabel, err
 	}
 
 	w.Header().Set("Content-Length", strconv.FormatInt(entry.Size, 10))
 	_, err = copyFlush(w, f)
-	return "hit", err
+	return accessLabel, err
 }
 
 // parseSingleRange 解析单个 bytes=start-end；多区间返回 error→416；无 Range 返回 ok=false。
@@ -595,6 +599,7 @@ type limitReader struct {
 	idle     float64
 	traffic  *traffic.Recorder
 	allow    func() bool
+	lease    *prefetchLease
 }
 
 func (l *limitReader) Read(p []byte) (int, error) {
@@ -605,6 +610,9 @@ func (l *limitReader) Read(p []byte) (int, error) {
 				break
 			}
 			held = true
+			if l.lease != nil {
+				l.lease.release()
+			}
 			select {
 			case <-l.ctx.Done():
 				return 0, l.ctx.Err()
@@ -612,6 +620,11 @@ func (l *limitReader) Read(p []byte) (int, error) {
 			}
 		}
 		if held {
+			if l.lease != nil {
+				if err := l.lease.ensureHeld(l.ctx); err != nil {
+					return 0, err
+				}
+			}
 			// pause 解除后旧 body 可能已僵死，交给上层换连接重拉
 			return 0, errPrefetchReconnect
 		}

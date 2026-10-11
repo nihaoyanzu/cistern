@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -111,6 +112,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	// 仅制品下载占用交互槽并暂停预取；索引/metadata 短请求不触发 pause 抖动
 	holdInteractive := prio == scheduler.PriorityInteractive && !m.IsIndex && !m.IsMetadata
 	taskID := s.sched.Begin(m.Platform, m.TargetURL, prio, boost, holdInteractive)
+	if holdInteractive {
+		// 交互制品：立刻标 preparing，避免 HEAD/鉴权阶段显示「排队中」
+		s.sched.MarkPreparing(taskID)
+	}
 	onAcquired := func() { s.sched.MarkRunning(taskID) }
 	onProgress := func(done, total int64) { s.sched.UpdateProgress(taskID, done, total) }
 	var taskErr error
@@ -199,8 +204,30 @@ func rememberIndexDigests(body []byte, pageURL string) {
 			downloader.RememberDigest(ref.URL, ref.SHA256)
 		}
 	}
-	// npm packument 的 integrity 多为 sha512，下载器当前按 SHA256 校验；此处仅占位遍历，避免漏接扩展点
-	_ = npmhandler.ExtractTarballDigests(body)
+	for u, integrity := range npmhandler.ExtractTarballDigests(body) {
+		downloader.RememberIntegrity(u, integrity)
+	}
+}
+
+// cacheLabelForErr 访问日志用的可读缓存标签：回源失败→miss，超时/取消单独标注。
+func cacheLabelForErr(err error) string {
+	if err == nil {
+		return "miss"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "cancelled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "context canceled") || strings.Contains(msg, "context cancelled") {
+		return "cancelled"
+	}
+	if strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline exceeded") {
+		return "timeout"
+	}
+	return "miss"
 }
 
 func matchETag(inm, etag string) bool {
