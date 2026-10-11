@@ -69,6 +69,10 @@ func looksLikeForeignPrefetchBlob(s string) bool {
 	if strings.Contains(low, "<dependencies>") && strings.Contains(low, "<dependency>") {
 		return true
 	}
+	// gradle.properties：多行 key=group:artifact:version
+	if looksLikeGradlePropertiesBlob(s) {
+		return true
+	}
 
 	// go.mod / go.sum
 	if strings.Contains(low, "\nmodule ") || strings.HasPrefix(low, "module ") ||
@@ -159,6 +163,31 @@ func looksLikeGoModuleLine(line string) bool {
 	}
 	first, _, _ := strings.Cut(path, "/")
 	return strings.Contains(first, ".")
+}
+
+// looksLikeGradlePropertiesBlob：非空行均为 key=value，且至少一行值像 GAV（不调 maven handler）。
+func looksLikeGradlePropertiesBlob(s string) bool {
+	propLines, gavHits := 0, 0
+	for _, raw := range strings.Split(s, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") {
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			return false
+		}
+		val := strings.TrimSpace(line[eq+1:])
+		val = strings.Trim(val, `"'`)
+		if i := strings.IndexByte(val, '#'); i >= 0 {
+			val = strings.TrimSpace(val[:i])
+		}
+		propLines++
+		if strings.Count(val, ":") >= 2 && !strings.ContainsAny(val, " \t") {
+			gavHits++
+		}
+	}
+	return propLines > 0 && gavHits > 0
 }
 
 // looksLikeHFRepoLine：owner/repo 或 datasets/...（无 PEP508 运算符），避免误认成包名。

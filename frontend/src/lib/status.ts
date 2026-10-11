@@ -35,14 +35,16 @@ export function prioKey(p: string): string {
 }
 
 export function cacheKey(c: string): string {
-  if (c === 'hit') return 'status.hit'
-  if (c === 'miss') return 'status.miss'
-  if (c === 'na') return '-'
-  return c || '-'
+  const v = (c || '').toLowerCase()
+  if (v === 'hit' || v === 'stale' || v === 'revalidated') return 'status.hit'
+  if (v === 'miss') return 'status.miss'
+  if (v === 'na' || !v) return '-'
+  return c
 }
 
 export function cacheClass(c: string): string {
-  if (c === 'hit') return 'ui-badge-ok'
-  if (c === 'miss') return 'ui-badge-warn'
+  const v = (c || '').toLowerCase()
+  if (v === 'hit' || v === 'stale' || v === 'revalidated') return 'ui-badge-ok'
+  if (v === 'miss') return 'ui-badge-warn'
   return 'ui-badge-muted'
 }

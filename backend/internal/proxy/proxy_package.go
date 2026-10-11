@@ -36,7 +36,8 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 				return s.servePackageHit(w, r, entry, boost, onAcquired, onProgress)
 			}
 			http.Error(w, err.Error(), http.StatusBadGateway)
-			return "na", "proxy", err
+			// 无本地缓存且鉴权/回源前失败：记 miss，避免访问日志显示为「-」
+			return "miss", "proxy", err
 		}
 	}
 
@@ -87,6 +88,11 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	hasSize := false
 	// SkipUpstreamHead：交互冷路径跳过上游 HEAD；HF 等需 CL 校验的不设此标志
 	skipHead := m.SkipUpstreamHead && !prefetch
+	// 交互路径在 HEAD / 等任务槽之前就标 running，避免 P0 长时间显示「排队中」
+	// （槽位仍由 downloader.AcquireTask 约束；MarkRunning 对非 queued 幂等）
+	if !prefetch && onAcquired != nil {
+		onAcquired()
+	}
 	if !skipHead {
 		hs, headCT, finalURL, headErr := s.dl.Head(r.Context(), origURL, headers)
 		if headErr == nil {
@@ -104,8 +110,8 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	}
 
 	fileBoost := boost
-	if skipHead && !prefetch {
-		// 无大小信息时默认插队，避免冷装被预取占满
+	if !prefetch && (skipHead || !hasSize) {
+		// 无大小信息（跳过 HEAD / HEAD 失败）时默认插队，避免被预取占满
 		fileBoost = true
 	} else if !prefetch && cfg.Scheduler.SmallFileBoost.Enabled {
 		maxBoost := int64(cfg.Scheduler.SmallFileBoost.MaxSizeKB) * 1024

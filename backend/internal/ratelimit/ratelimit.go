@@ -210,7 +210,10 @@ func (r *Registry) IdleRatio() float64 {
 	return r.idleRatio
 }
 
-func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost bool) error {
+// AcquireTask 获取任务槽。
+// boost：小文件插队池；interactive：交互下载（非预取）。
+// 预取被 P0 pause 时仍可能占着槽位停读，此时交互允许短暂超额占槽，避免 P0 饿死被客户端掐断。
+func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost, interactive bool) error {
 	for {
 		p.mu.Lock()
 		maxTask := p.cfg.MaxConcurrent
@@ -224,9 +227,16 @@ func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost bool) error {
 		}
 
 		ok := false
+		paused := p.prefetchPaused
 		if boost {
 			if p.activeBoost < maxBoost {
 				p.activeBoost++
+				p.activeTasks++
+				ok = true
+			}
+		} else if interactive && paused {
+			// pause 期间预取占坑不放行：交互可超额到 maxTask+maxBoost
+			if p.activeTasks < maxTask+maxBoost {
 				p.activeTasks++
 				ok = true
 			}

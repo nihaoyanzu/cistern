@@ -650,13 +650,13 @@ func (e *Engine) acquireTaskSlot(ctx context.Context, pl *ratelimit.PlatformLimi
 		return fmt.Errorf("no rate limiter")
 	}
 	if !opt.Prefetch {
-		return pl.AcquireTask(ctx, opt.Boost)
+		return pl.AcquireTask(ctx, opt.Boost, !opt.Prefetch)
 	}
 	for {
 		if _, err := e.waitPrefetchGate(ctx, pl, opt); err != nil {
 			return err
 		}
-		if err := pl.AcquireTask(ctx, opt.Boost); err != nil {
+		if err := pl.AcquireTask(ctx, opt.Boost, !opt.Prefetch); err != nil {
 			return err
 		}
 		allow := e.prefetchAllow(opt)

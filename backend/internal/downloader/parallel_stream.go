@@ -23,7 +23,7 @@ func (e *Engine) streamParallelToClient(ctx context.Context, w http.ResponseWrit
 	if pl == nil {
 		return nil, "", 0, fmt.Errorf("no rate limiter for platform %s", opt.Platform)
 	}
-	if err := pl.AcquireTask(ctx, opt.Boost); err != nil {
+	if err := pl.AcquireTask(ctx, opt.Boost, !opt.Prefetch); err != nil {
 		return nil, "", 0, err
 	}
 	defer pl.ReleaseTask(opt.Boost)

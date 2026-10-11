@@ -219,8 +219,9 @@ export default {
       "每行一个 Hub 仓库：owner/repo；数据集加 datasets/ 前缀；修订用 {'@'}rev。将按 tree 展开仓库内全部文件。",
     placeholderHuggingFace:
       "openai/clip-vit-base-patch32\ngoogle-bert/bert-base-uncased{'@'}main\ndatasets/squad\n# 或 https://huggingface.co/gpt2",
-    hintMaven: '粘贴 pom.xml，或多行 group:artifact:version',
-    placeholderMaven: 'junit:junit:4.13.2\norg.slf4j:slf4j-api:2.0.16\n# 或整份 pom.xml',
+    hintMaven: '粘贴 pom.xml、gradle.properties（值为 GAV），或多行 group:artifact:version',
+    placeholderMaven:
+      'junit:junit:4.13.2\norg.slf4j:slf4j-api:2.0.16\n# 或整份 pom.xml\n# 或 gradle.properties：\n# gson=com.google.code.gson:gson:2.10.1',
     submitting: '提交中…',
     taskList: '预取任务',
     noTasks: '暂无预拉取',
@@ -311,7 +312,8 @@ export default {
     huggingfacePrefetchHint:
       "在「预拉取」页粘贴 owner/repo 或 datasets/owner/repo（可 {'@'}revision）；将按 tree 展开全部文件。",
     mavenUpstreamHint: 'Maven2 仓库上游（索引与制品共用）；留空则使用默认官方源阿里云 central。只读缓存，不支持 deploy。',
-    mavenPrefetchHint: '在「预拉取」页粘贴 pom.xml 或多行 group:artifact:version；将展开 pom+jar 依赖闭包（跳过 test）。',
+    mavenPrefetchHint:
+      '在「预拉取」页粘贴 pom.xml、gradle.properties（key=group:artifact:version）或多行 GAV；将展开 pom+jar 依赖闭包（跳过 test）。',
     mavenRepoUpstream: '仓库上游',
     mavenFileUpstream: '制品上游',
     registryUpstream: 'Registry 上游',

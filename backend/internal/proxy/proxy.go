@@ -162,7 +162,7 @@ func (s *Server) acquireProxyTask(ctx context.Context, platform string, boost bo
 		}
 		return func() {}, nil
 	}
-	if err := pl.AcquireTask(ctx, boost); err != nil {
+	if err := pl.AcquireTask(ctx, boost, true); err != nil {
 		return nil, err
 	}
 	if onAcquired != nil {

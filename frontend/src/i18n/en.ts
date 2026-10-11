@@ -219,8 +219,9 @@ export default {
       "One Hub repo per line: owner/repo; prefix datasets/ for datasets; use {'@'}rev for revision. Expands all files via the repo tree.",
     placeholderHuggingFace:
       "openai/clip-vit-base-patch32\ngoogle-bert/bert-base-uncased{'@'}main\ndatasets/squad\n# or https://huggingface.co/gpt2",
-    hintMaven: 'Paste a pom.xml, or one group:artifact:version per line',
-    placeholderMaven: 'junit:junit:4.13.2\norg.slf4j:slf4j-api:2.0.16\n# or a full pom.xml',
+    hintMaven: 'Paste a pom.xml, gradle.properties (GAV values), or one group:artifact:version per line',
+    placeholderMaven:
+      'junit:junit:4.13.2\norg.slf4j:slf4j-api:2.0.16\n# or a full pom.xml\n# or gradle.properties:\n# gson=com.google.code.gson:gson:2.10.1',
     submitting: 'Submitting…',
     taskList: 'Prefetch Tasks',
     noTasks: 'No prefetch tasks',
@@ -315,7 +316,8 @@ export default {
       "Paste owner/repo or datasets/owner/repo (optional {'@'}revision) on Prefetch; all files are expanded via tree API.",
     mavenUpstreamHint:
       'Maven2 repository upstream (shared by indexes and artifacts); leave empty for the default official Aliyun central. Read-only, no deploy.',
-    mavenPrefetchHint: 'Paste pom.xml or lines of group:artifact:version on Prefetch; expands pom+jar closure (skips test scope).',
+    mavenPrefetchHint:
+      'Paste pom.xml, gradle.properties (key=group:artifact:version), or GAV lines on Prefetch; expands pom+jar closure (skips test scope).',
     mavenRepoUpstream: 'Repository Upstream',
     mavenFileUpstream: 'Artifact Upstream',
     registryUpstream: 'Registry Upstream',

@@ -53,7 +53,7 @@ func LookLikePom(text string) bool {
 // LookLikeGAVList 粗判是否为多行 g:a:v（Gradle/Maven 坐标列表）。
 func LookLikeGAVList(text string) bool {
 	s := strings.TrimSpace(text)
-	if s == "" || LookLikePom(s) {
+	if s == "" || LookLikePom(s) || LookLikeGradleProperties(s) {
 		return false
 	}
 	lines, hits := 0, 0
@@ -68,6 +68,109 @@ func LookLikeGAVList(text string) bool {
 		}
 	}
 	return lines > 0 && hits*2 >= lines
+}
+
+// LookLikeGradleProperties 粗判 gradle.properties：非空行均为 key=value，且至少一行的值是 GAV。
+// 仅含开关/版本号、没有任何 GAV 值的 properties 不会命中。
+func LookLikeGradleProperties(text string) bool {
+	s := strings.TrimSpace(text)
+	if s == "" || LookLikePom(s) {
+		return false
+	}
+	propLines, gavHits := 0, 0
+	for _, raw := range strings.Split(s, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || isPropertiesComment(line) {
+			continue
+		}
+		_, val, ok := splitPropertiesKV(line)
+		if !ok {
+			return false
+		}
+		propLines++
+		if _, ok := ParseCoordinate(val); ok {
+			gavHits++
+		}
+	}
+	return propLines > 0 && gavHits > 0
+}
+
+// ParseGradleProperties 从 gradle.properties 中提取值为 GAV 的条目；其它键跳过。
+func ParseGradleProperties(text string) (coords []Coordinate, skipped []string) {
+	seen := map[string]struct{}{}
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || isPropertiesComment(line) {
+			continue
+		}
+		_, val, ok := splitPropertiesKV(line)
+		if !ok {
+			skipped = append(skipped, line)
+			continue
+		}
+		c, ok := ParseCoordinate(val)
+		if !ok {
+			skipped = append(skipped, line)
+			continue
+		}
+		key := c.String()
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		coords = append(coords, c)
+	}
+	return coords, skipped
+}
+
+func isPropertiesComment(line string) bool {
+	return strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") || strings.HasPrefix(line, "//")
+}
+
+// splitPropertiesKV 解析 key=value（允许空格）；去掉值两侧引号与行尾 # 注释。
+func splitPropertiesKV(line string) (key, val string, ok bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || isPropertiesComment(line) {
+		return "", "", false
+	}
+	eq := strings.IndexByte(line, '=')
+	if eq <= 0 {
+		return "", "", false
+	}
+	key = strings.TrimSpace(line[:eq])
+	if key == "" {
+		return "", "", false
+	}
+	val = strings.TrimSpace(line[eq+1:])
+	val = stripPropertiesInlineComment(val)
+	val = strings.TrimSpace(val)
+	val = strings.Trim(val, `"'`)
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return "", "", false
+	}
+	return key, val, true
+}
+
+func stripPropertiesInlineComment(val string) string {
+	inSingle, inDouble := false, false
+	for i := 0; i < len(val); i++ {
+		switch val[i] {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '#':
+			if !inSingle && !inDouble {
+				return strings.TrimSpace(val[:i])
+			}
+		}
+	}
+	return val
 }
 
 // ParseCoordinate 解析单行 group:artifact:version（可带 @pom / @jar 包装）。

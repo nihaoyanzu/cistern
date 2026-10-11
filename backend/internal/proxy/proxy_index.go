@@ -55,7 +55,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 				return s.serveCachedIndex(w, r, stale, plat, cfg, boost, "STALE")
 			}
 			http.Error(w, err.Error(), http.StatusBadGateway)
-			return "na", err
+			// 无缓存可回退时记 miss（如 Docker 换票失败），访问日志展示「未命中」而非「-」
+			return "miss", err
 		}
 	}
 
