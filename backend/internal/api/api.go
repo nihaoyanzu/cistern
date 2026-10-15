@@ -545,7 +545,11 @@ func (s *Server) deletePrefetch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id required", http.StatusBadRequest)
 		return
 	}
+	// 预取 P1/P2 与交互 P0 均可取消（Cancel 内走 CancelTask）
 	ok := s.prefetch.Cancel(id)
+	if !ok && s.sched != nil {
+		_, ok = s.sched.CancelTask(id)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"cancelled": ok})
 }
 

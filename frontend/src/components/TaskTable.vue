@@ -76,8 +76,15 @@ const effectiveEmptyTitle = computed(() => props.emptyTitle || t('common.noData'
 const effectiveEmptyDesc = computed(() => props.emptyDescription || undefined)
 
 function canCancel(task: QueueTask) {
-  if (task.status !== 'running' && task.status !== 'preparing' && task.status !== 'queued') return false
-  if (props.showPriority) return task.priority === 'P2' || task.priority === 'P1'
+  // P0/P1/P2 及 waiting 均可管理台强制取消
+  if (
+    task.status !== 'running' &&
+    task.status !== 'preparing' &&
+    task.status !== 'queued' &&
+    task.status !== 'waiting'
+  ) {
+    return false
+  }
   return true
 }
 

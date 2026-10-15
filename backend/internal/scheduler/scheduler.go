@@ -82,15 +82,50 @@ type Scheduler struct {
 	nextID       atomic.Uint64
 	resumeMu     sync.Mutex
 	resumeTimer  *time.Timer
+
+	// 任务级 context 取消（交互代理 / 预取均可 Bind）；管理台强制取消时调用
+	cancelMu sync.Mutex
+	cancels  map[string]context.CancelFunc
 }
 
 func New(lim *ratelimit.Registry, cfgFn func() config.SchedulerConfig, log *zap.Logger) *Scheduler {
 	return &Scheduler{
 		tasks:        map[string]*TaskInfo{},
 		p0ByPlatform: map[string]int64{},
+		cancels:      map[string]context.CancelFunc{},
 		limiters:     lim,
 		cfgFn:        cfgFn,
 		log:          log,
+	}
+}
+
+// BindCancel 登记任务可取消函数（请求结束时须 UnbindCancel）。
+func (s *Scheduler) BindCancel(taskID string, cancel context.CancelFunc) {
+	if taskID == "" || cancel == nil {
+		return
+	}
+	s.cancelMu.Lock()
+	s.cancels[taskID] = cancel
+	s.cancelMu.Unlock()
+}
+
+// UnbindCancel 移除登记，不调用 cancel。
+func (s *Scheduler) UnbindCancel(taskID string) {
+	if taskID == "" {
+		return
+	}
+	s.cancelMu.Lock()
+	delete(s.cancels, taskID)
+	s.cancelMu.Unlock()
+}
+
+func (s *Scheduler) abortBound(taskID string) {
+	s.cancelMu.Lock()
+	cancel := s.cancels[taskID]
+	delete(s.cancels, taskID)
+	s.cancelMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 
@@ -639,17 +674,38 @@ func (s *Scheduler) refreshTaskMetricsLocked() {
 	}
 }
 
+func isActiveCancellableStatus(status string) bool {
+	return status == "running" || status == "preparing" || status == "queued" || status == "waiting"
+}
+
 // CancelPrefetch 仅取消 P1/P2 预取类任务，返回 URL 供上层取消下载 context。
 func (s *Scheduler) CancelPrefetch(idOrURL string) (taskURL string, ok bool) {
+	return s.cancelTask(idOrURL, true)
+}
+
+// CancelTask 取消任意优先级活跃任务（含 P0 交互），并触发已 Bind 的 context cancel。
+func (s *Scheduler) CancelTask(idOrURL string) (taskURL string, ok bool) {
+	return s.cancelTask(idOrURL, false)
+}
+
+func (s *Scheduler) cancelTask(idOrURL string, prefetchOnly bool) (taskURL string, ok bool) {
 	s.mu.Lock()
+	var abortID string
 	mark := func(t *TaskInfo) {
 		t.Status = "cancelled"
 		t.UpdatedAt = time.Now()
 		t.Error = ""
 		s.releaseActiveLocked(t)
+		abortID = t.ID
+	}
+	allow := func(prio string) bool {
+		if prefetchOnly {
+			return isPrefetchCancellable(prio)
+		}
+		return true
 	}
 	if t, found := s.tasks[idOrURL]; found {
-		if (t.Status == "running" || t.Status == "preparing" || t.Status == "queued" || t.Status == "waiting") && isPrefetchCancellable(t.Priority) {
+		if isActiveCancellableStatus(t.Status) && allow(t.Priority) {
 			mark(t)
 			taskURL, ok = t.URL, true
 		}
@@ -659,10 +715,10 @@ func (s *Scheduler) CancelPrefetch(idOrURL string) (taskURL string, ok bool) {
 			if tt == nil || tt.URL != idOrURL {
 				continue
 			}
-			if !isPrefetchCancellable(tt.Priority) {
+			if !allow(tt.Priority) {
 				continue
 			}
-			if tt.Status != "running" && tt.Status != "preparing" && tt.Status != "queued" && tt.Status != "waiting" {
+			if !isActiveCancellableStatus(tt.Status) {
 				continue
 			}
 			mark(tt)
@@ -675,6 +731,9 @@ func (s *Scheduler) CancelPrefetch(idOrURL string) (taskURL string, ok bool) {
 	}
 	s.mu.Unlock()
 	if ok {
+		if abortID != "" {
+			s.abortBound(abortID)
+		}
 		s.resumePrefetchIfIdle()
 	}
 	return taskURL, ok

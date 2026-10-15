@@ -112,6 +112,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	// 仅制品下载占用交互槽并暂停预取；索引/metadata 短请求不触发 pause 抖动
 	holdInteractive := prio == scheduler.PriorityInteractive && !m.IsIndex && !m.IsMetadata
 	taskID := s.sched.Begin(m.Platform, m.TargetURL, prio, boost, holdInteractive)
+	// 管理台可强制取消：派生可取消 ctx 并登记
+	reqCtx, reqCancel := context.WithCancel(r.Context())
+	defer reqCancel()
+	s.sched.BindCancel(taskID, reqCancel)
+	defer s.sched.UnbindCancel(taskID)
+	r = r.WithContext(reqCtx)
 	if holdInteractive {
 		// 交互制品：立刻标 preparing，避免 HEAD/鉴权阶段显示「排队中」
 		s.sched.MarkPreparing(taskID)

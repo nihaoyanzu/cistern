@@ -214,6 +214,8 @@ func (s *Service) startOne(ctx context.Context, rawURL string) {
 			platName = plat.Name()
 		}
 		taskID := s.sched.Begin(platName, rawURL, scheduler.PriorityPrefetch, false, false)
+		s.sched.BindCancel(taskID, cancel)
+		defer s.sched.UnbindCancel(taskID)
 		if plat != nil && !pcfg.Enabled {
 			s.sched.MarkRunning(taskID)
 			err := fmt.Errorf("%s 模块未启用", platName)
@@ -275,7 +277,8 @@ func (s *Service) Cancel(urlOrID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	taskURL, marked := s.sched.CancelPrefetch(urlOrID)
+	// 含 P0 交互：调度器标 cancelled 并 abort 已 Bind 的请求 ctx
+	taskURL, marked := s.sched.CancelTask(urlOrID)
 	keys := []string{urlOrID}
 	if taskURL != "" {
 		keys = append(keys, taskURL)
