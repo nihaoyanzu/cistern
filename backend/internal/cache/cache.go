@@ -80,7 +80,29 @@ type Manager struct {
 	stop    chan struct{}
 	done    chan struct{}
 
+	// clearing + writeWG：Clear 先置位再等在飞写入结束，避免删光后被并发 Put 写回。
+	clearing bool
+	writeWG  sync.WaitGroup
+
 	layoutMigrate layoutMigrateStats
+}
+
+var errCacheClearing = fmt.Errorf("cache clearing")
+
+// HoldWrite 登记一次在飞写入（下载开始时调用）；Clear 会等待全部 ReleaseWrite。
+func (m *Manager) HoldWrite() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.clearing {
+		return errCacheClearing
+	}
+	m.writeWG.Add(1)
+	return nil
+}
+
+// ReleaseWrite 与 HoldWrite 成对。
+func (m *Manager) ReleaseWrite() {
+	m.writeWG.Done()
 }
 
 type layoutMigrateStats struct {
@@ -553,6 +575,62 @@ func (m *Manager) GetStale(key string) (*Entry, bool) {
 	return &entry, true
 }
 
+// OpenStale 与 GetStale 同等语义（忽略 TTL），但在持锁下打开文件，降低 TOCTOU。
+// 调用方必须 Close 返回的 *os.File。不计命中统计。
+func (m *Manager) OpenStale(key string) (*Entry, *os.File, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var entry Entry
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketMeta)
+		v := b.Get([]byte(key))
+		if v == nil {
+			return fmt.Errorf("miss")
+		}
+		return json.Unmarshal(v, &entry)
+	})
+	if err != nil {
+		return nil, nil, false
+	}
+	if strings.TrimSpace(entry.SourceURL) == "" || strings.TrimSpace(entry.Kind) == "" {
+		return nil, nil, false
+	}
+	f, err := os.Open(entry.FilePath)
+	if err != nil {
+		return nil, nil, false
+	}
+	cp := entry
+	return &cp, f, true
+}
+
+// ReadAll 持锁 Open 后读完整文件（适合索引/元数据等小对象），避免 Get+ReadFile TOCTOU。
+func (m *Manager) ReadAll(key string, platformHint ...string) (*Entry, []byte, bool) {
+	ent, f, ok := m.Open(key, platformHint...)
+	if !ok {
+		return nil, nil, false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, nil, false
+	}
+	return ent, data, true
+}
+
+// ReadAllStale 持锁 OpenStale 后读完整文件。
+func (m *Manager) ReadAllStale(key string) (*Entry, []byte, bool) {
+	ent, f, ok := m.OpenStale(key)
+	if !ok {
+		return nil, nil, false
+	}
+	defer f.Close()
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return nil, nil, false
+	}
+	return ent, data, true
+}
+
 // RenewTTL 更新条目的 CreatedAt、TTLSeconds 和 LastAccess（不改文件），实现条件请求续期。
 func (m *Manager) RenewTTL(key string, ttlSeconds int) error {
 	m.mu.Lock()
@@ -579,6 +657,13 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 	if strings.TrimSpace(meta.SourceURL) == "" || strings.TrimSpace(meta.Kind) == "" {
 		return nil, fmt.Errorf("cache meta requires source_url and kind")
 	}
+	// 自身占写租约（下载路径还会再 Hold 一层，Clear 等两层都结束）
+	if err := m.HoldWrite(); err != nil {
+		_ = os.Remove(srcPath)
+		return nil, err
+	}
+	defer m.ReleaseWrite()
+
 	// 入库摘要统一为 sha256 hex；npm SRI（sha512-/sha256-）先校验再换算，避免 Put 把 SRI 当 hex 比对失败。
 	digestHex := ""
 	if strings.TrimSpace(meta.Digest) != "" {
@@ -616,6 +701,10 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.clearing {
+		_ = os.Remove(staging)
+		return nil, errCacheClearing
+	}
 
 	_ = os.Remove(dst)
 	if err := os.Rename(staging, dst); err != nil {
@@ -712,9 +801,20 @@ func (m *Manager) Delete(key string) error {
 	return m.deleteLocked(key)
 }
 
-func (m *Manager) Clear() error {
+// Clear 清空缓存。abortInflight 在 clearing=true 之后、Wait 之前调用（用于取消已 Bind 的下载），
+// 避免「先取消再置 clearing」窗口内新 HoldWrite 拖住 Wait。
+func (m *Manager) Clear(abortInflight func()) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.clearing = true
+	m.mu.Unlock()
+
+	if abortInflight != nil {
+		abortInflight()
+	}
+	// 在飞写入会因 ctx 取消尽快 ReleaseWrite；新 HoldWrite 已因 clearing 失败
+	m.writeWG.Wait()
+
+	m.mu.Lock()
 	var keys []string
 	_ = m.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketMeta)
@@ -726,8 +826,24 @@ func (m *Manager) Clear() error {
 	for _, k := range keys {
 		_ = m.deleteLocked(k)
 	}
+	// 清空分片续传标记，避免「条目已删但 chunks 仍在」导致错误 resume
+	_ = m.db.Update(func(tx *bbolt.Tx) error {
+		if err := tx.DeleteBucket(bucketChunks); err != nil && err != bbolt.ErrBucketNotFound {
+			return err
+		}
+		_, err := tx.CreateBucketIfNotExists(bucketChunks)
+		return err
+	})
 	m.hit.clear()
 	m.dirty = true
+	m.mu.Unlock()
+
+	// clearing 仍为 true：禁止新 HoldWrite，期间清临时文件
+	_, _ = m.PurgeTempFiles()
+
+	m.mu.Lock()
+	m.clearing = false
+	m.mu.Unlock()
 	return nil
 }
 

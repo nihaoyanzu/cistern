@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -253,20 +252,34 @@ func matchETag(inm, etag string) bool {
 	return false
 }
 
-func serveDownloadResult(w http.ResponseWriter, res *downloader.Result, boost bool) (string, error) {
-	label, _, err := serveDownloadResultFull(w, res, boost)
+func (s *Server) serveDownloadResult(w http.ResponseWriter, res *downloader.Result, boost bool) (string, error) {
+	label, _, err := s.serveDownloadResultFull(w, res, boost)
 	return label, err
 }
 
-func serveDownloadResultFull(w http.ResponseWriter, res *downloader.Result, boost bool) (string, bool, error) {
-	f, err := os.Open(res.Entry.FilePath)
-	if err != nil {
+func (s *Server) serveDownloadResultFull(w http.ResponseWriter, res *downloader.Result, boost bool) (string, bool, error) {
+	if res == nil || res.Entry == nil || strings.TrimSpace(res.Entry.Key) == "" {
+		err := errors.New("empty download result")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return "miss", false, err
+	}
+	ent, f, ok := s.cache.Open(res.Entry.Key)
+	if !ok {
+		err := errors.New("cache open miss")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return "miss", false, err
 	}
 	defer f.Close()
-	w.Header().Set("Content-Type", res.ContentType)
-	w.Header().Set("Content-Length", strconv.FormatInt(res.Size, 10))
+	ct := res.ContentType
+	if ct == "" {
+		ct = ent.ContentType
+	}
+	size := res.Size
+	if size <= 0 {
+		size = ent.Size
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 	cacheLabel := "miss"
 	strat := res.Strategy
 	if strat == "" {
@@ -283,6 +296,6 @@ func serveDownloadResultFull(w http.ResponseWriter, res *downloader.Result, boos
 	if boost {
 		w.Header().Set("X-Mirrorhub-Boost", "1")
 	}
-	_, err = io.Copy(w, f)
+	_, err := io.Copy(w, f)
 	return cacheLabel, false, err
 }

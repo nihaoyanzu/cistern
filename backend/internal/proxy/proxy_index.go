@@ -3,8 +3,8 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -36,8 +36,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 
 	// ---------- 1. 缓存命中（未过期）→ 直接返回 ----------
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		if entry, ok := s.cache.Get(cacheKey, m.Platform); ok {
-			return s.serveCachedIndex(w, r, entry, plat, cfg, boost, "HIT")
+		if entry, data, ok := s.cache.ReadAll(cacheKey, m.Platform); ok {
+			return s.serveCachedIndex(w, r, entry, data, plat, cfg, boost, "HIT")
 		}
 	}
 
@@ -51,8 +51,8 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 	}
 	if auther, ok := plat.(platform.UpstreamAuther); ok {
 		if err := auther.InjectUpstreamAuth(r.Context(), headers, cfg, r.URL.Path); err != nil {
-			if stale, ok := s.cache.GetStale(cacheKey); ok {
-				return s.serveCachedIndex(w, r, stale, plat, cfg, boost, "STALE")
+			if stale, data, ok := s.cache.ReadAllStale(cacheKey); ok {
+				return s.serveCachedIndex(w, r, stale, data, plat, cfg, boost, "STALE")
 			}
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			// 无缓存可回退时记 miss（如 Docker 换票失败），访问日志展示「未命中」而非「-」
@@ -61,11 +61,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 	}
 
 	var staleEntry *cache.Entry
+	var staleData []byte
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		if stale, ok := s.cache.GetStale(cacheKey); ok {
+		if stale, data, ok := s.cache.ReadAllStale(cacheKey); ok {
 			staleEntry = stale
+			staleData = data
 			if r.Method == http.MethodGet {
-				result := s.doRevalidation(cacheKey, m.TargetURL, m.Platform, stale, headers, cfg.Cache.IndexTTLSeconds)
+				result := s.doRevalidation(cacheKey, m.TargetURL, m.Platform, stale, data, headers, cfg.Cache.IndexTTLSeconds)
 				<-result.done
 				if result.entry != nil && len(result.body) > 0 {
 					// 续期成功 → 用旧内容响应
@@ -94,7 +96,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 				}
 			}
 			// 续期失败 / HEAD → 直接回退过期缓存（不依赖后续全量 GET）
-			return s.serveCachedIndex(w, r, stale, plat, cfg, boost, "STALE")
+			return s.serveCachedIndex(w, r, stale, data, plat, cfg, boost, "STALE")
 		}
 	}
 
@@ -103,12 +105,13 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 	if getErr != nil {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			if staleEntry == nil {
-				if stale, ok := s.cache.GetStale(cacheKey); ok {
+				if stale, data, ok := s.cache.ReadAllStale(cacheKey); ok {
 					staleEntry = stale
+					staleData = data
 				}
 			}
 			if staleEntry != nil {
-				return s.serveCachedIndex(w, r, staleEntry, plat, cfg, boost, "STALE")
+				return s.serveCachedIndex(w, r, staleEntry, staleData, plat, cfg, boost, "STALE")
 			}
 		}
 		if statusSuggestsAuth(getErr) {
@@ -152,7 +155,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 
 // doRevalidation 执行 per-key 条件请求续期，防止惊群效应。
 // 优先 If-None-Match；镜像无 ETag/不支持 304 时回退全文比对。
-func (s *Server) doRevalidation(cacheKey, targetURL, platName string, stale *cache.Entry, headers http.Header, ttlSeconds int) *revalResult {
+func (s *Server) doRevalidation(cacheKey, targetURL, platName string, stale *cache.Entry, oldData []byte, headers http.Header, ttlSeconds int) *revalResult {
 	val, loaded := s.revalLocks.LoadOrStore(cacheKey, &revalResult{done: make(chan struct{})})
 	result := val.(*revalResult)
 	if loaded {
@@ -164,11 +167,9 @@ func (s *Server) doRevalidation(cacheKey, targetURL, platName string, stale *cac
 			close(result.done)
 		}()
 
-		oldData, readErr := os.ReadFile(stale.FilePath)
-		if readErr != nil {
+		if len(oldData) == 0 {
 			if s.log != nil {
-				s.log.Warn("revalidation read stale file failed",
-					zap.String("path", stale.FilePath), zap.Error(readErr))
+				s.log.Warn("revalidation missing stale body", zap.String("key", cacheKey))
 			}
 			return
 		}
@@ -259,16 +260,16 @@ func (s *Server) serveRevalidated(w http.ResponseWriter, r *http.Request, result
 	return "revalidated", nil
 }
 
-// serveCachedIndex 从缓存响应索引请求（ETag/304、URL 改写）
+// serveCachedIndex 从已持锁读出的缓存正文响应索引（ETag/304、URL 改写）。
 // cacheLabel 一般为 HIT 或 STALE（过期回退）。
-func (s *Server) serveCachedIndex(w http.ResponseWriter, r *http.Request, entry *cache.Entry, plat platform.Platform, cfg config.Config, boost bool, cacheLabel string) (string, error) {
+func (s *Server) serveCachedIndex(w http.ResponseWriter, r *http.Request, entry *cache.Entry, data []byte, plat platform.Platform, cfg config.Config, boost bool, cacheLabel string) (string, error) {
 	if cacheLabel == "" {
 		cacheLabel = "HIT"
 	}
-	data, err := os.ReadFile(entry.FilePath)
-	if err != nil {
+	if entry == nil || len(data) == 0 {
+		err := fmt.Errorf("empty cached index")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return cacheLabelForErr(err), err
+		return "miss", err
 	}
 	data, _ = platform.MaybeGunzip(data)
 	accept := r.Header.Get("Accept")

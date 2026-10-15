@@ -191,14 +191,26 @@ func (s *Scheduler) MarkPreparing(id string) {
 // MarkRunning 将 queued/preparing/waiting 推进为 running（已占槽并开始传数据）。
 // 首次进入 running 且 wantP0 时在持锁内计入 p0Active 并 pause 本平台预取。
 func (s *Scheduler) MarkRunning(id string) {
+	// 预读任务是否可能 activateP0，以便先 cancelResumeTimer（锁序 resumeMu → s.mu）
 	s.mu.Lock()
 	t, ok := s.tasks[id]
+	mayP0 := ok && t != nil && t.wantP0 && !t.countsActive &&
+		(t.Status == "queued" || t.Status == "preparing" || t.Status == "waiting")
+	s.mu.Unlock()
+	if mayP0 {
+		cfg := s.cfgFn()
+		if cfg.Prefetch.OnInteractive == "pause" {
+			s.cancelResumeTimer()
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok = s.tasks[id]
 	if !ok || t == nil {
-		s.mu.Unlock()
 		return
 	}
 	if t.Status != "queued" && t.Status != "preparing" && t.Status != "waiting" {
-		s.mu.Unlock()
 		return
 	}
 	now := time.Now()
@@ -210,19 +222,12 @@ func (s *Scheduler) MarkRunning(id string) {
 		t.WaitMs = now.Sub(t.QueuedAt).Milliseconds()
 	}
 	t.UpdatedAt = now
-	activateP0 := false
-	platform := t.Platform
 	if t.wantP0 && !t.countsActive {
 		t.countsActive = true
-		s.incP0Locked(platform)
-		activateP0 = true
+		s.incP0Locked(t.Platform)
+		s.pausePrefetchLocked(t.Platform)
 	}
 	s.refreshTaskMetricsLocked()
-	s.mu.Unlock()
-
-	if activateP0 {
-		s.pausePrefetchIfNeeded(platform)
-	}
 }
 
 // MarkHit 缓存 HIT 展示为 running，不计 p0Active、不 pause 预取。
@@ -478,29 +483,42 @@ func (s *Scheduler) pausePrefetchIfNeeded(platform string) {
 	if cfg.Prefetch.OnInteractive != "pause" {
 		return
 	}
+	// 锁序：resumeMu → s.mu → limiter.mu，避免与 resume 路径交叉死锁
 	s.cancelResumeTimer()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pausePrefetchLocked(platform)
+}
+
+// pausePrefetchLocked 假定已持 s.mu；OnInteractive!=pause 时为 no-op。
+func (s *Scheduler) pausePrefetchLocked(platform string) {
+	cfg := s.cfgFn()
+	if cfg.Prefetch.OnInteractive != "pause" {
+		return
+	}
 	if pl := s.limiters.Get(platform); pl != nil {
 		if changed := pl.SetPrefetchPaused(true); changed {
 			s.refreshPrefetchPausedMetric()
-			s.log.Info("prefetch paused due to interactive traffic", zap.String("platform", platform))
-		}
-		// 仅同平台「运行中/准备中」的 P2→P1，避免跨平台拖死预取
-		s.mu.Lock()
-		for _, t := range s.tasks {
-			if t == nil || t.Platform != platform {
-				continue
-			}
-			if t.Status != "running" && t.Status != "preparing" {
-				continue
-			}
-			if t.Priority == PriorityPrefetch.String() {
-				t.Priority = PriorityResume.String()
-				t.UpdatedAt = time.Now()
+			if s.log != nil {
+				s.log.Info("prefetch paused due to interactive traffic", zap.String("platform", platform))
 			}
 		}
-		s.refreshTaskMetricsLocked()
-		s.mu.Unlock()
 	}
+	// 同平台活跃 P2→P1（含排队/等待），避免交互期间预取被永久卡住在 P2
+	now := time.Now()
+	for _, t := range s.tasks {
+		if t == nil || t.Platform != platform {
+			continue
+		}
+		if !isActiveCancellableStatus(t.Status) {
+			continue
+		}
+		if t.Priority == PriorityPrefetch.String() {
+			t.Priority = PriorityResume.String()
+			t.UpdatedAt = now
+		}
+	}
+	s.refreshTaskMetricsLocked()
 }
 
 // PrefetchMayRun 预取任务是否允许继续占槽/读字节。
@@ -575,31 +593,31 @@ func (s *Scheduler) resumePrefetchIfIdle() {
 }
 
 // applyPrefetchResumeIdlePlatforms 仅解除 p0ByPlatform[p]==0 的平台 PrefetchPaused。
+// 持 s.mu 完成「读 p0 + SetPrefetchPaused(false)」，避免 Unlock 后新 P0 已 pause 仍被错误恢复。
 func (s *Scheduler) applyPrefetchResumeIdlePlatforms() {
 	cfg := s.cfgFn()
 	if !cfg.Prefetch.ResumeOnIdle {
 		return
 	}
 	s.mu.Lock()
-	idle := make([]string, 0)
+	defer s.mu.Unlock()
+	changedAny := false
 	for _, snap := range s.limiters.Snapshots() {
 		name, _ := snap["platform"].(string)
 		if name == "" {
 			continue
 		}
-		if s.platformP0Locked(name) == 0 {
-			idle = append(idle, name)
+		if s.platformP0Locked(name) != 0 {
+			continue
 		}
-	}
-	s.mu.Unlock()
-	changedAny := false
-	for _, name := range idle {
-		if pl := s.limiters.Get(name); pl != nil {
-			if pl.SetPrefetchPaused(false) {
-				changedAny = true
-				if s.log != nil {
-					s.log.Info("prefetch resumed after interactive idle", zap.String("platform", name))
-				}
+		pl := s.limiters.Get(name)
+		if pl == nil {
+			continue
+		}
+		if pl.SetPrefetchPaused(false) {
+			changedAny = true
+			if s.log != nil {
+				s.log.Info("prefetch resumed after interactive idle", zap.String("platform", name))
 			}
 		}
 	}
@@ -632,6 +650,8 @@ func (s *Scheduler) ResumeCount() int64 {
 func (s *Scheduler) List() []TaskInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// UI 轮询 List 时也淘汰过期完成态，避免空闲时队列只增不减
+	s.pruneFinishedLocked(time.Now())
 	out := make([]TaskInfo, 0, len(s.order))
 	now := time.Now()
 	for i := len(s.order) - 1; i >= 0; i-- {
@@ -690,13 +710,13 @@ func (s *Scheduler) CancelTask(idOrURL string) (taskURL string, ok bool) {
 
 func (s *Scheduler) cancelTask(idOrURL string, prefetchOnly bool) (taskURL string, ok bool) {
 	s.mu.Lock()
-	var abortID string
+	var abortIDs []string
 	mark := func(t *TaskInfo) {
 		t.Status = "cancelled"
 		t.UpdatedAt = time.Now()
 		t.Error = ""
 		s.releaseActiveLocked(t)
-		abortID = t.ID
+		abortIDs = append(abortIDs, t.ID)
 	}
 	allow := func(prio string) bool {
 		if prefetchOnly {
@@ -710,6 +730,7 @@ func (s *Scheduler) cancelTask(idOrURL string, prefetchOnly bool) (taskURL strin
 			taskURL, ok = t.URL, true
 		}
 	} else {
+		// 同 URL 可能并存交互+预取等多任务：全部取消，避免只掐第一个
 		for _, tid := range s.order {
 			tt := s.tasks[tid]
 			if tt == nil || tt.URL != idOrURL {
@@ -723,7 +744,6 @@ func (s *Scheduler) cancelTask(idOrURL string, prefetchOnly bool) (taskURL strin
 			}
 			mark(tt)
 			taskURL, ok = tt.URL, true
-			break
 		}
 	}
 	if ok {
@@ -731,12 +751,43 @@ func (s *Scheduler) cancelTask(idOrURL string, prefetchOnly bool) (taskURL strin
 	}
 	s.mu.Unlock()
 	if ok {
-		if abortID != "" {
-			s.abortBound(abortID)
+		for _, id := range abortIDs {
+			s.abortBound(id)
 		}
 		s.resumePrefetchIfIdle()
 	}
 	return taskURL, ok
+}
+
+// CancelAllActive 取消全部活跃任务并触发已 Bind 的 context cancel。
+// resume=false 时不武装 ResumeOnIdle（Clear 清空完成前不得恢复预取）。
+func (s *Scheduler) CancelAllActive(resume bool) int {
+	s.mu.Lock()
+	var abortIDs []string
+	n := 0
+	for _, tid := range s.order {
+		t := s.tasks[tid]
+		if t == nil || !isActiveCancellableStatus(t.Status) {
+			continue
+		}
+		t.Status = "cancelled"
+		t.UpdatedAt = time.Now()
+		t.Error = ""
+		s.releaseActiveLocked(t)
+		abortIDs = append(abortIDs, t.ID)
+		n++
+	}
+	if n > 0 {
+		s.refreshTaskMetricsLocked()
+	}
+	s.mu.Unlock()
+	for _, id := range abortIDs {
+		s.abortBound(id)
+	}
+	if n > 0 && resume {
+		s.resumePrefetchIfIdle()
+	}
+	return n
 }
 
 // ClearFinished 清理已结束任务（done/error/cancelled），返回清理数量。

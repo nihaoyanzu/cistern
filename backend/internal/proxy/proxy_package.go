@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -67,18 +68,19 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	}
 
 	if err := injectAuth(); err != nil {
-		if entry, ok := s.cache.Get(cacheKey, m.Platform); ok {
-			return s.servePackageHit(w, r, entry, boost, onHit, onProgress)
+		if entry, f, ok := s.cache.Open(cacheKey, m.Platform); ok {
+			return s.servePackageHit(w, r, entry, f, boost, onHit, onProgress)
 		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return "miss", "proxy", err
 	}
 
-	if entry, ok := s.cache.Get(cacheKey, m.Platform); ok {
+	if entry, f, ok := s.cache.Open(cacheKey, m.Platform); ok {
 		if entry.Size <= 0 {
+			f.Close()
 			_ = s.cache.Delete(cacheKey)
 		} else {
-			return s.servePackageHit(w, r, entry, boost, onHit, onProgress)
+			return s.servePackageHit(w, r, entry, f, boost, onHit, onProgress)
 		}
 	}
 
@@ -261,7 +263,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return "miss", "parallel", err
 	}
-	label, _, err := serveDownloadResultFull(w, res, fileBoost)
+	label, _, err := s.serveDownloadResultFull(w, res, fileBoost)
 	strat := res.Strategy
 	if strat == "" {
 		strat = "parallel"
@@ -291,7 +293,11 @@ func (w *writeTrack) Flush() {
 	}
 }
 
-func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *cache.Entry, boost bool, onHit func(), onProgress func(done, total int64)) (string, string, error) {
+// servePackageHit 回本地 HIT。f 须来自 cache.Open，本函数负责 Close。
+func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *cache.Entry, f *os.File, boost bool, onHit func(), onProgress func(done, total int64)) (string, string, error) {
+	if f != nil {
+		defer f.Close()
+	}
 	if entry != nil && entry.Size <= 0 {
 		_ = s.cache.Delete(entry.Key)
 		err := fmt.Errorf("cached entry has zero size")
@@ -334,12 +340,16 @@ func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *
 		w.WriteHeader(http.StatusOK)
 		return "hit", "cache", nil
 	}
-	// GET 命中：直接回本地缓存，禁止再打上游 HEAD（否则每次 HIT 都被上游探测拖慢）
+	// GET 命中：直接回已 Open 的本地 fd，禁止再打上游 HEAD
 	if r.Method == http.MethodGet {
+		if f == nil {
+			err := fmt.Errorf("cache hit missing file handle")
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return "miss", "cache", err
+		}
 		tw := &writeTrack{ResponseWriter: w}
-		label, err := s.dl.ServeCachedEntry(tw, entry, boost, r.Header.Get("Range"), "HIT")
+		label, err := s.dl.ServeCachedFile(tw, entry, f, boost, r.Header.Get("Range"), "HIT")
 		if err != nil && !tw.wrote {
-			// 元数据在、文件缺失：删坏条目并 502，避免空 200
 			_ = s.cache.Delete(entry.Key)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 		}

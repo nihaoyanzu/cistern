@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -139,7 +138,7 @@ func (s *Server) getPackage(w http.ResponseWriter, r *http.Request) {
 		isIndex := e.Kind == "index" || info.Type == "index"
 		if isIndex {
 			hasIndex = true
-			for _, v := range versionsFromIndexEntry(e) {
+			for _, v := range versionsFromIndexEntry(s.cache, e) {
 				indexVersionSet[v] = struct{}{}
 			}
 		} else {
@@ -372,12 +371,13 @@ func (s *Server) localPackageIndex() map[string]packageSummary {
 	return out
 }
 
-func versionsFromIndexEntry(e cache.Entry) []string {
-	if e.FilePath == "" {
+func versionsFromIndexEntry(c *cache.Manager, e cache.Entry) []string {
+	if c == nil || e.Key == "" {
 		return nil
 	}
-	body, err := os.ReadFile(e.FilePath)
-	if err != nil || len(body) == 0 {
+	// 列表可能含过期索引：用 ReadAllStale 持锁读，避免 FilePath 裸读 TOCTOU
+	_, body, ok := c.ReadAllStale(e.Key)
+	if !ok || len(body) == 0 {
 		return nil
 	}
 	refs := pypihandler.ExtractArtifactRefs(body, e.SourceURL)

@@ -237,6 +237,9 @@ func (e *Engine) getOrDownload(ctx context.Context, opt Options, allowFollowerRe
 	sw := actual.(*inflightWait)
 	if loaded {
 		cancel()
+		if opt.OnWaiting != nil {
+			opt.OnWaiting()
+		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -280,6 +283,10 @@ func (e *Engine) download(ctx context.Context, opt Options) (*Result, error) {
 			return nil, err
 		}
 	}
+	if err := e.cache.HoldWrite(); err != nil {
+		return nil, err
+	}
+	defer e.cache.ReleaseWrite()
 	pl := e.limiters.Get(opt.Platform)
 	if pl == nil {
 		return nil, fmt.Errorf("no rate limiter for platform %s", opt.Platform)
@@ -1221,22 +1228,15 @@ func (e *Engine) readProxyBody(ctx context.Context, resp *http.Response, platfor
 func (e *Engine) FetchSimpleIndex(ctx context.Context, indexURL, platName string, ttlSeconds int, prefetch bool) ([]byte, string, error) {
 	cacheKey := "pypi:index:" + cache.KeyFromURL(indexURL)
 	if ttlSeconds > 0 {
-		if entry, ok := e.cache.Get(cacheKey, platName); ok {
-			data, err := os.ReadFile(entry.FilePath)
-			if err != nil {
-				return nil, "", err
-			}
+		if entry, data, ok := e.cache.ReadAll(cacheKey, platName); ok {
 			return data, entry.ContentType, nil
 		}
 	}
 	status, respHeader, body, err := e.ProxyBytes(ctx, http.MethodGet, indexURL, nil, nil, platName, prefetch)
 	if err != nil || status >= 400 {
 		if ttlSeconds > 0 {
-			if stale, ok := e.cache.GetStale(cacheKey); ok {
-				data, readErr := os.ReadFile(stale.FilePath)
-				if readErr == nil {
-					return data, stale.ContentType, nil
-				}
+			if entry, data, ok := e.cache.ReadAllStale(cacheKey); ok {
+				return data, entry.ContentType, nil
 			}
 		}
 		if err != nil {
@@ -1260,18 +1260,15 @@ func (e *Engine) FetchSimpleIndex(ctx context.Context, indexURL, platName string
 func (e *Engine) FetchMetadata(ctx context.Context, metaURL, platName string, ttlSeconds int, prefetch bool) ([]byte, error) {
 	cacheKey := cache.KeyFromURL(metaURL)
 	if ttlSeconds > 0 {
-		if entry, ok := e.cache.Get(cacheKey, platName); ok {
-			return os.ReadFile(entry.FilePath)
+		if _, data, ok := e.cache.ReadAll(cacheKey, platName); ok {
+			return data, nil
 		}
 	}
 	status, respHeader, body, err := e.ProxyBytes(ctx, http.MethodGet, metaURL, nil, nil, platName, prefetch)
 	if err != nil || status < 200 || status >= 300 {
 		if ttlSeconds > 0 {
-			if stale, ok := e.cache.GetStale(cacheKey); ok {
-				data, readErr := os.ReadFile(stale.FilePath)
-				if readErr == nil {
-					return data, nil
-				}
+			if _, data, ok := e.cache.ReadAllStale(cacheKey); ok {
+				return data, nil
 			}
 		}
 		if err != nil {

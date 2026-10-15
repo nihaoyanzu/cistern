@@ -61,58 +61,85 @@ func parseLinkedSize(v string) int64 {
 	return n
 }
 
-// ServePackage 交互下载：命中缓存直接回文件；未命中则流式/并行流式并写入缓存。
+// ServePackage 交互下载：命中缓存直接回文件；未命中则流式并写入缓存。
 func (e *Engine) ServePackage(ctx context.Context, w http.ResponseWriter, opt Options) (cacheLabel string, err error) {
 	opt.resolveExpectedDigest()
+	if entry, f, ok := e.cache.Open(opt.CacheKey, opt.Platform); ok {
+		notifyHit(opt)
+		defer f.Close()
+		return serveCachedFile(w, entry, f, opt.Boost, opt.RangeHeader, "HIT")
+	}
+
+	for try := 0; try < 3; try++ {
+		label, done, err := e.servePackageOnce(ctx, w, opt)
+		if done {
+			return label, err
+		}
+	}
+	return "miss", fmt.Errorf("unable to acquire download slot")
+}
+
+// ServeCachedFile 使用调用方已通过 cache.Open/OpenStale 持有的 fd。
+func (e *Engine) ServeCachedFile(w http.ResponseWriter, entry *cache.Entry, f *os.File, boost bool, rangeHeader, cacheLabel string) (string, error) {
+	return serveCachedFile(w, entry, f, boost, rangeHeader, cacheLabel)
+}
+
+// ServeCachedEntry 按 key 持锁再开文件后回源，避免 Get/GetStale 与 Open 之间的 TOCTOU。
+// cacheLabel 为 STALE 时走 OpenStale（忽略 TTL）；否则 Open。空则按 HIT。
+func (e *Engine) ServeCachedEntry(w http.ResponseWriter, entry *cache.Entry, boost bool, rangeHeader, cacheLabel string) (string, error) {
+	if entry == nil || strings.TrimSpace(entry.Key) == "" {
+		return "miss", fmt.Errorf("nil cache entry")
+	}
+	label := cacheLabel
+	if label == "" {
+		label = "HIT"
+	}
+	var (
+		ent *cache.Entry
+		f   *os.File
+		ok  bool
+	)
+	if strings.EqualFold(label, "STALE") {
+		ent, f, ok = e.cache.OpenStale(entry.Key)
+	} else {
+		ent, f, ok = e.cache.Open(entry.Key)
+	}
+	if !ok {
+		return "miss", fmt.Errorf("cache open miss")
+	}
+	defer f.Close()
+	return serveCachedFile(w, ent, f, boost, rangeHeader, label)
+}
+
+func (e *Engine) servePackageOnce(ctx context.Context, w http.ResponseWriter, opt Options) (label string, done bool, err error) {
+	wait := &inflightWait{done: make(chan struct{}), mode: inflightModeStream}
+	actual, loaded := e.inflight.LoadOrStore(opt.CacheKey, wait)
+	if loaded {
+		sw := actual.(*inflightWait)
+		if sw.mode == inflightModeFetch && sw.cancel != nil {
+			sw.cancel()
+		}
+		if opt.OnWaiting != nil {
+			opt.OnWaiting()
+		}
+		select {
+		case <-ctx.Done():
+			return "na", true, ctx.Err()
+		case <-sw.done:
+		}
 		if entry, f, ok := e.cache.Open(opt.CacheKey, opt.Platform); ok {
 			notifyHit(opt)
 			defer f.Close()
-			return serveCachedFile(w, entry, f, opt.Boost, opt.RangeHeader, "HIT")
+			l, e2 := serveCachedFile(w, entry, f, opt.Boost, opt.RangeHeader, "HIT")
+			return l, true, e2
 		}
-
-		for try := 0; try < 3; try++ {
-			label, done, err := e.servePackageOnce(ctx, w, opt)
-			if done {
-				return label, err
-			}
+		if sw.err == nil && sw.entry != nil && strings.TrimSpace(sw.entry.Key) != "" {
+			notifyHit(opt)
+			l, e2 := e.ServeCachedEntry(w, sw.entry, opt.Boost, opt.RangeHeader, "HIT")
+			return l, true, e2
 		}
-		return "miss", fmt.Errorf("unable to acquire download slot")
+		return "", false, nil // 重试占坑
 	}
-
-	// ServeCachedEntry 直接回已查到的缓存条目（避免二次 Get）。cacheLabel 空则 HIT。
-	func (e *Engine) ServeCachedEntry(w http.ResponseWriter, entry *cache.Entry, boost bool, rangeHeader, cacheLabel string) (string, error) {
-		return serveCached(w, entry, boost, rangeHeader, cacheLabel)
-	}
-
-	func (e *Engine) servePackageOnce(ctx context.Context, w http.ResponseWriter, opt Options) (label string, done bool, err error) {
-		wait := &inflightWait{done: make(chan struct{}), mode: inflightModeStream}
-		actual, loaded := e.inflight.LoadOrStore(opt.CacheKey, wait)
-		if loaded {
-			sw := actual.(*inflightWait)
-			if sw.mode == inflightModeFetch && sw.cancel != nil {
-				sw.cancel()
-			}
-			if opt.OnWaiting != nil {
-				opt.OnWaiting()
-			}
-			select {
-			case <-ctx.Done():
-				return "na", true, ctx.Err()
-			case <-sw.done:
-			}
-			if entry, f, ok := e.cache.Open(opt.CacheKey, opt.Platform); ok {
-				notifyHit(opt)
-				defer f.Close()
-				l, e2 := serveCachedFile(w, entry, f, opt.Boost, opt.RangeHeader, "HIT")
-				return l, true, e2
-			}
-			if sw.err == nil && sw.entry != nil {
-				notifyHit(opt)
-				l, e2 := serveCached(w, sw.entry, opt.Boost, opt.RangeHeader, "HIT")
-				return l, true, e2
-			}
-			return "", false, nil // 重试占坑
-		}
 
 	defer func() {
 		e.inflight.Delete(opt.CacheKey)
@@ -136,15 +163,6 @@ func (e *Engine) ServePackage(ctx context.Context, w http.ResponseWriter, opt Op
 		return "miss", true, err
 	}
 	return "miss", true, nil
-}
-
-func serveCached(w http.ResponseWriter, entry *cache.Entry, boost bool, rangeHeader, cacheLabel string) (string, error) {
-	f, err := os.Open(entry.FilePath)
-	if err != nil {
-		return "miss", err
-	}
-	defer f.Close()
-	return serveCachedFile(w, entry, f, boost, rangeHeader, cacheLabel)
 }
 
 func serveCachedFile(w http.ResponseWriter, entry *cache.Entry, f *os.File, boost bool, rangeHeader, cacheLabel string) (string, error) {
@@ -289,6 +307,11 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 		ctx, cancel = context.WithTimeout(ctx, interactiveStreamMaxWall)
 		defer cancel()
 	}
+	// 下载全程占写租约，Clear 会等到本请求结束且拒绝入库
+	if err := e.cache.HoldWrite(); err != nil {
+		return nil, "", 0, err
+	}
+	defer e.cache.ReleaseWrite()
 	pl := e.limiters.Get(opt.Platform)
 	if pl == nil {
 		return nil, "", 0, fmt.Errorf("no rate limiter for platform %s", opt.Platform)

@@ -51,24 +51,26 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request, m *route
 	if prefetch {
 		res, err := s.dl.GetOrDownload(r.Context(), opt)
 		if err != nil {
-			if stale, ok := s.cache.GetStale(cacheKey); ok {
+			if ent, f, ok := s.cache.OpenStale(cacheKey); ok {
+				defer f.Close()
 				if onAcquired != nil {
 					onAcquired()
 				}
-				return s.dl.ServeCachedEntry(w, stale, boost, r.Header.Get("Range"), "STALE")
+				return s.dl.ServeCachedFile(w, ent, f, boost, r.Header.Get("Range"), "STALE")
 			}
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return "miss", err
 		}
-		return serveDownloadResult(w, res, boost)
+		return s.serveDownloadResult(w, res, boost)
 	}
 	label, err := s.dl.ServePackage(r.Context(), w, opt)
 	if err != nil {
-		if stale, ok := s.cache.GetStale(cacheKey); ok {
+		if ent, f, ok := s.cache.OpenStale(cacheKey); ok {
+			defer f.Close()
 			if onAcquired != nil {
 				onAcquired()
 			}
-			return s.dl.ServeCachedEntry(w, stale, boost, r.Header.Get("Range"), "STALE")
+			return s.dl.ServeCachedFile(w, ent, f, boost, r.Header.Get("Range"), "STALE")
 		}
 	}
 	return label, err

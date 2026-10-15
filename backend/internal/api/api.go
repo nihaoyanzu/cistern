@@ -558,9 +558,17 @@ func (s *Server) getCache(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) clearCache(w http.ResponseWriter, _ *http.Request) {
-	if err := s.cache.Clear(); err != nil {
+	// clearing 置位后再取消在飞任务（resume=false），堵住 Cancel→clearing 窗口且清空前不恢复预取
+	if err := s.cache.Clear(func() {
+		if s.sched != nil {
+			s.sched.CancelAllActive(false)
+		}
+	}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if s.sched != nil {
+		s.sched.ResumePrefetchIfIdle()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"cleared": true})
 }
