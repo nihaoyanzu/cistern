@@ -97,7 +97,7 @@ func (e *Engine) streamParallelToClient(ctx context.Context, w http.ResponseWrit
 			var lastErr error
 			for attempt := 0; attempt < 3; attempt++ {
 				var got int64
-				err := e.fetchChunk(gctx, pl, opt, nil, f, ch.start, ch.end, func(n int64) {
+				err := e.fetchChunk(gctx, pl, opt, nil, f, ch.start, ch.end, nil, func(n int64) {
 					got += n
 					notifyProgress(opt, downloaded.Add(n), size)
 				})

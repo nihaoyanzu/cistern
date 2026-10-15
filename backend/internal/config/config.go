@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,6 +71,26 @@ type PrefetchConfig struct {
 	TargetPython    []string `json:"target_python"`    // 目标 Python 版本列表，如 ["3.10","3.12"]
 	TargetPlatforms []string `json:"target_platforms"` // 多选：linux / linux-arm / win32 / win-arm / darwin / darwin-arm
 	TargetPlatform  string   `json:"target_platform"`  // 兼容旧单值；加载时并入 TargetPlatforms
+
+	// resumeOnIdlePresent：JSON 是否显式包含 resume_on_idle（缺省则 applyDefaults 置 true）
+	resumeOnIdlePresent bool `json:"-"`
+}
+
+// UnmarshalJSON 识别 resume_on_idle 是否显式出现，避免旧配置缺字段被当成 false。
+func (p *PrefetchConfig) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	_, p.resumeOnIdlePresent = raw["resume_on_idle"]
+	type alias PrefetchConfig
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*p = PrefetchConfig(a)
+	_, p.resumeOnIdlePresent = raw["resume_on_idle"]
+	return nil
 }
 
 // TargetPythonVersions 返回配置的目标 Python 版本列表；空则返回默认 ["3.10","3.11","3.12"]。
@@ -423,6 +444,11 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Scheduler.Prefetch.OnInteractive == "" {
 		cfg.Scheduler.Prefetch.OnInteractive = "pause"
+	}
+	// 旧库缺 resume_on_idle 时 Go 零值为 false，会导致 pause 后永不清；与前端 !== false 对齐
+	if !cfg.Scheduler.Prefetch.resumeOnIdlePresent {
+		cfg.Scheduler.Prefetch.ResumeOnIdle = true
+		cfg.Scheduler.Prefetch.resumeOnIdlePresent = true
 	}
 	if cfg.Scheduler.Prefetch.ArtifactMode == "" {
 		cfg.Scheduler.Prefetch.ArtifactMode = "portable"

@@ -233,10 +233,24 @@ func (r *Registry) IdleRatio() float64 {
 	return r.idleRatio
 }
 
+// interactiveReserveFor 从 MaxConcurrent 中保留给交互的槽位数（continue 模式下防止预取吃满）。
+func interactiveReserveFor(maxTask int) int {
+	r := maxTask / 10
+	if r < 2 {
+		r = 2
+	}
+	if r >= maxTask {
+		r = maxTask / 2
+		if r < 1 {
+			r = 1
+		}
+	}
+	return r
+}
+
 // AcquireTask 获取任务槽。boost：小文件插队池；interactive：交互下载（非预取）。
-// 预取 pause 时应由 downloader 释放槽位；交互走正常/boost 池，不再超额占槽。
+// 非交互最多占到 MaxConcurrent-reserve，给 interactive 留槽（pause 模式仍靠 PrefetchPaused 让路）。
 func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost, interactive bool) error {
-	_ = interactive
 	for {
 		p.mu.Lock()
 		maxTask := p.cfg.MaxConcurrent
@@ -261,7 +275,14 @@ func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost, interactive bo
 			if normal < 0 {
 				normal = 0
 			}
-			if normal < maxTask {
+			limit := maxTask
+			if !interactive {
+				limit = maxTask - interactiveReserveFor(maxTask)
+				if limit < 1 {
+					limit = 1
+				}
+			}
+			if normal < limit {
 				p.activeTasks++
 				ok = true
 			}

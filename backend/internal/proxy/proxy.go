@@ -117,12 +117,12 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.sched.MarkPreparing(taskID)
 	}
 	onAcquired := func() { s.sched.MarkRunning(taskID) }
+	onWaiting := func() { s.sched.MarkWaiting(taskID) }
 	onProgress := func(done, total int64) { s.sched.UpdateProgress(taskID, done, total) }
 	var taskErr error
 	cacheLabel := "na"
 	defer func() {
-		// 极短命中路径可能未回调 OnAcquired，结束前兜底标 running 再 End
-		s.sched.MarkRunning(taskID)
+		// 仅 OnAcquired→MarkRunning 才占 P0；未下载完成的 preparing/waiting 直接 End
 		s.sched.End(taskID, taskErr)
 		metrics.RequestsTotal.WithLabelValues(m.Platform, strategy, cacheLabel).Inc()
 		if s.traffic != nil {
@@ -153,7 +153,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		strategy = "metadata"
 		cacheLabel, taskErr = s.handleMetadata(cw, r, m, cfg, pcfg, prio == scheduler.PriorityPrefetch, boost, onAcquired, taskID)
 	case m.Strategy == router.StrategyParallel:
-		cacheLabel, strategy, taskErr = s.handlePackage(cw, r, m, mr.Platform, cfg, pcfg, prio == scheduler.PriorityPrefetch, boost, onAcquired, onProgress, taskID)
+		cacheLabel, strategy, taskErr = s.handlePackage(cw, r, m, mr.Platform, cfg, pcfg, prio == scheduler.PriorityPrefetch, boost, onAcquired, onWaiting, onProgress, taskID)
 	default:
 		http.Error(cw, "unknown strategy", http.StatusInternalServerError)
 	}

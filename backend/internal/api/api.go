@@ -257,6 +257,7 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prevUpstream := s.catalogRootURL()
+	prevResumeOnIdle := s.cfg.Get().Scheduler.Prefetch.ResumeOnIdle
 	err := s.cfg.Update(func(c *config.Config) {
 		if body.UpstreamProxy != nil {
 			c.Server.UpstreamProxy = *body.UpstreamProxy
@@ -297,6 +298,9 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.UpstreamProxy != nil && s.dl != nil {
 		s.dl.SetUpstreamProxy(cfg.Server.UpstreamProxy)
+	}
+	if body.Scheduler != nil && !prevResumeOnIdle && cfg.Scheduler.Prefetch.ResumeOnIdle && s.sched != nil {
+		s.sched.ApplyPrefetchResume()
 	}
 	if s.catalogRootURL() != prevUpstream {
 		s.kickCatalogRefresh(true)

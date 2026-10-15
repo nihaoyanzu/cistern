@@ -47,6 +47,8 @@ type Options struct {
 	RangeHeader  string // 客户端 Range，仅 ServePackage HIT 使用
 	// OnAcquired 在拿到任务槽（或缓存命中开始服务）时回调，用于调度器 preparing→running
 	OnAcquired func()
+	// OnWaiting inflight 合并等待时回调（不计 P0）
+	OnWaiting func()
 	// OnProgress 下载进度（已完成字节, 总字节；总字节未知时为 0）
 	OnProgress func(done, total int64)
 }
@@ -359,13 +361,30 @@ func (e *Engine) download(ctx context.Context, opt Options) (*Result, error) {
 			continue
 		}
 		g.Go(func() error {
-			if _, err := e.waitPrefetchGate(gctx, pl, opt, lease); err != nil {
+			if _, err := e.waitPrefetchGate(gctx, pl, opt, lease, nil); err != nil {
 				return err
 			}
 			if err := pl.AcquireConn(gctx, !opt.Prefetch); err != nil {
 				return err
 			}
-			defer pl.ReleaseConn()
+			connHeld := true
+			releaseConn := func() {
+				if connHeld {
+					pl.ReleaseConn()
+					connHeld = false
+				}
+			}
+			defer releaseConn()
+			ensureConn := func() error {
+				if connHeld {
+					return nil
+				}
+				if err := pl.AcquireConn(gctx, !opt.Prefetch); err != nil {
+					return err
+				}
+				connHeld = true
+				return nil
+			}
 
 			// 分片内断点续传：pause/瞬时错误后从已写入偏移继续，不回退总进度
 			cur := ch.start
@@ -375,12 +394,15 @@ func (e *Engine) download(ctx context.Context, opt Options) (*Result, error) {
 					break
 				}
 				if attempt > 0 {
-					if _, err := e.waitPrefetchGate(gctx, pl, opt, lease); err != nil {
+					if _, err := e.waitPrefetchGate(gctx, pl, opt, lease, releaseConn); err != nil {
+						return err
+					}
+					if err := ensureConn(); err != nil {
 						return err
 					}
 				}
 				var got int64
-				err := e.fetchChunk(gctx, pl, opt, lease, f, cur, ch.end, func(n int64) {
+				err := e.fetchChunk(gctx, pl, opt, lease, f, cur, ch.end, releaseConn, func(n int64) {
 					got += n
 					onBytes(n)
 				})
@@ -437,7 +459,7 @@ func (e *Engine) downloadSerial(ctx context.Context, pl *ratelimit.PlatformLimit
 	var last error
 	for attempt := 0; attempt < 5; attempt++ {
 		if attempt > 0 {
-			if _, err := e.waitPrefetchGate(ctx, pl, opt, lease); err != nil {
+			if _, err := e.waitPrefetchGate(ctx, pl, opt, lease, nil); err != nil {
 				_ = os.Remove(tmp)
 				return nil, err
 			}
@@ -707,12 +729,14 @@ func (l *prefetchLease) ensureHeld(ctx context.Context) error {
 }
 
 // waitPrefetchGate：P0 交互 pause 时挡住预取；等待期间通过 lease 释放任务槽。
+// onBlocked 在首次进入等待时调用（用于释放连接槽，避免预取攥 conn 饿死交互）。
 // held=true 表示曾被门闩挡住，上游连接不宜继续读。
-func (e *Engine) waitPrefetchGate(ctx context.Context, pl *ratelimit.PlatformLimiter, opt Options, lease *prefetchLease) (held bool, err error) {
+func (e *Engine) waitPrefetchGate(ctx context.Context, pl *ratelimit.PlatformLimiter, opt Options, lease *prefetchLease, onBlocked func()) (held bool, err error) {
 	if !opt.Prefetch || pl == nil {
 		return false, nil
 	}
 	allow := e.prefetchAllow(opt)
+	blockedOnce := false
 	for {
 		if !pl.PrefetchPaused() && (allow == nil || allow()) {
 			if held {
@@ -723,6 +747,12 @@ func (e *Engine) waitPrefetchGate(ctx context.Context, pl *ratelimit.PlatformLim
 			return held, nil
 		}
 		held = true
+		if !blockedOnce {
+			blockedOnce = true
+			if onBlocked != nil {
+				onBlocked()
+			}
+		}
 		lease.release()
 		select {
 		case <-ctx.Done():
@@ -861,56 +891,67 @@ func parseContentRangeTotal(cr string) int64 {
 	return n
 }
 
-func (e *Engine) fetchChunk(ctx context.Context, pl *ratelimit.PlatformLimiter, opt Options, lease *prefetchLease, f *os.File, start, end int64, onBytes func(int64)) error {
-	var resp *http.Response
-	var last error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(200 * time.Millisecond):
-			}
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, opt.URL, nil)
-		if err != nil {
-			return err
-		}
-		copyHeaders(req, opt.Headers)
-		req.Header.Del("Accept-Encoding")
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
-		resp, err = e.client.Do(req)
-		if err == nil {
-			break
-		}
-		last = err
-		if !isTransientNetErr(err) {
-			return err
-		}
+func (e *Engine) fetchChunk(ctx context.Context, pl *ratelimit.PlatformLimiter, opt Options, lease *prefetchLease, f *os.File, start, end int64, onBlocked func(), onBytes func(int64)) error {
+	want := end - start + 1
+	if want <= 0 {
+		return fmt.Errorf("invalid chunk range %d-%d", start, end)
 	}
-	if resp == nil {
-		return last
+	headers := cloneHeader(opt.Headers)
+	headers.Del("Accept-Encoding")
+	headers.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+	resp, err := e.doGET(ctx, http.MethodGet, opt.URL, headers, 3)
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK && start != 0 {
+		return fmt.Errorf("chunk ignored Range (got 200 for start=%d)", start)
+	}
 	if resp.StatusCode != http.StatusPartialContent && !(resp.StatusCode == http.StatusOK && start == 0) {
 		return fmt.Errorf("chunk status %d", resp.StatusCode)
 	}
+
+	reqCtx, reqCancel := context.WithCancel(ctx)
+	defer reqCancel()
+	var lastProgress atomic.Int64
+	lastProgress.Store(time.Now().UnixNano())
+	watchDone := make(chan struct{})
+	go func(body io.ReadCloser) {
+		defer close(watchDone)
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-reqCtx.Done():
+				return
+			case <-t.C:
+				last := time.Unix(0, lastProgress.Load())
+				if time.Since(last) >= streamStallTimeout {
+					_ = body.Close()
+					reqCancel()
+					return
+				}
+			}
+		}
+	}(resp.Body)
+
+	body := &stallAwareBody{ctx: reqCtx, body: resp.Body}
 	buf := make([]byte, 32*1024)
 	offset := start
 	for {
-		n, readErr := resp.Body.Read(buf)
+		n, readErr := body.Read(buf)
 		if n > 0 {
+			lastProgress.Store(time.Now().UnixNano())
 			idle := 0.3
 			if e.idleRatio != nil {
 				idle = e.idleRatio()
 			}
 			if opt.Prefetch {
-				held, err := e.waitPrefetchGate(ctx, pl, opt, lease)
-				if err != nil {
-					return err
+				held, gateErr := e.waitPrefetchGate(ctx, pl, opt, lease, onBlocked)
+				if gateErr != nil {
+					return gateErr
 				}
 				if held {
-					// pause 期间停读，原连接可能已僵死，换 Range 重拉本分片
 					return errPrefetchReconnect
 				}
 				if err := pl.WaitPrefetch(ctx, n, idle); err != nil {
@@ -934,8 +975,15 @@ func (e *Engine) fetchChunk(ctx context.Context, pl *ratelimit.PlatformLimiter, 
 			break
 		}
 		if readErr != nil {
+			if errors.Is(readErr, errUpstreamStall) {
+				return errUpstreamStall
+			}
 			return readErr
 		}
+	}
+	got := offset - start
+	if got != want {
+		return fmt.Errorf("chunk short read: got %d want %d (range %d-%d)", got, want, start, end)
 	}
 	return nil
 }
@@ -1054,12 +1102,31 @@ func (e *Engine) ProxyBytes(ctx context.Context, method, rawURL string, headers 
 		return e.readProxyBody(ctx, resp, platform, prefetch)
 	}
 
-	resp, err := e.doGET(ctx, method, rawURL, headers, 3)
-	if err != nil {
-		return 0, nil, nil, err
+	var lastStatus int
+	var lastHeader http.Header
+	var lastBody []byte
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		resp, err := e.doGET(ctx, method, rawURL, headers, 3)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		status, hdr, data, readErr := e.readProxyBody(ctx, resp, platform, prefetch)
+		_ = resp.Body.Close()
+		if readErr == nil {
+			return status, hdr, data, nil
+		}
+		lastStatus, lastHeader, lastBody, lastErr = status, hdr, data, readErr
+		if !errors.Is(readErr, errPrefetchReconnect) {
+			return status, hdr, data, readErr
+		}
+		select {
+		case <-ctx.Done():
+			return 0, nil, nil, ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * 200 * time.Millisecond):
+		}
 	}
-	defer resp.Body.Close()
-	return e.readProxyBody(ctx, resp, platform, prefetch)
+	return lastStatus, lastHeader, lastBody, lastErr
 }
 
 func (e *Engine) readProxyBody(ctx context.Context, resp *http.Response, platform string, prefetch bool) (int, http.Header, []byte, error) {

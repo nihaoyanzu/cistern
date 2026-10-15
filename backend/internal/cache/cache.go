@@ -434,7 +434,15 @@ func (m *Manager) Get(key string, platformHint ...string) (*Entry, bool) {
 		m.dirty = true
 		return nil, false
 	}
-	if _, err := os.Stat(entry.FilePath); err != nil {
+	info, err := os.Stat(entry.FilePath)
+	if err != nil {
+		_ = m.deleteLocked(key)
+		m.hit.noteMiss(HitPlatform(hint, key, &entry))
+		m.dirty = true
+		return nil, false
+	}
+	// 零字节或元数据与磁盘实长不一致：删条回源，避免错误 Content-Length 挂死客户端
+	if entry.Kind == "package" && (entry.Size <= 0 || info.Size() != entry.Size) {
 		_ = m.deleteLocked(key)
 		m.hit.noteMiss(HitPlatform(hint, key, &entry))
 		m.dirty = true
@@ -531,6 +539,14 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 	if err != nil {
 		return nil, err
 	}
+	kind := strings.TrimSpace(meta.Kind)
+	if kind == "" {
+		kind = "package"
+	}
+	if kind == "package" && info.Size() <= 0 {
+		_ = os.Remove(dst)
+		return nil, fmt.Errorf("refuse to cache zero-size package")
+	}
 	etag := ""
 	if digestHex != "" {
 		etag = `"` + digestHex + `"`
@@ -546,7 +562,7 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 		LastAccess:   time.Now(),
 		TTLSeconds:   ttlSeconds,
 		SourceURL:    meta.SourceURL,
-		Kind:         meta.Kind,
+		Kind:         kind,
 		Digest:       digestHex,
 		ETag:         etag,
 		UpstreamETag: meta.UpstreamETag,

@@ -88,16 +88,21 @@ func (e *Engine) ServePackage(ctx context.Context, w http.ResponseWriter, opt Op
 			if sw.mode == inflightModeFetch && sw.cancel != nil {
 				sw.cancel()
 			}
+			if opt.OnWaiting != nil {
+				opt.OnWaiting()
+			}
 			select {
 			case <-ctx.Done():
 				return "na", true, ctx.Err()
 			case <-sw.done:
 			}
 			if entry, ok := e.cache.Get(opt.CacheKey, opt.Platform); ok {
+				notifyAcquired(opt)
 				l, e2 := serveCached(w, entry, opt.Boost, opt.RangeHeader, "HIT")
 				return l, true, e2
 			}
 			if sw.err == nil && sw.entry != nil {
+				notifyAcquired(opt)
 				l, e2 := serveCached(w, sw.entry, opt.Boost, opt.RangeHeader, "HIT")
 				return l, true, e2
 			}
@@ -266,7 +271,15 @@ func copyFlush(w http.ResponseWriter, src io.Reader) (int64, error) {
 	}
 }
 
+const interactiveStreamMaxWall = 2 * time.Hour
+
 func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWriter, opt Options) (*cache.Entry, string, int64, error) {
+	// 交互传体绝对上限，防止 Timeout=0 僵尸连接
+	if !opt.Prefetch {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, interactiveStreamMaxWall)
+		defer cancel()
+	}
 	pl := e.limiters.Get(opt.Platform)
 	if pl == nil {
 		return nil, "", 0, fmt.Errorf("no rate limiter for platform %s", opt.Platform)
@@ -295,10 +308,11 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 		}
 	}()
 
-	size := int64(-1)
-	if opt.HasKnownSize && opt.KnownSize >= 0 {
-		size = opt.KnownSize
+	knownSize := int64(-1)
+	if opt.HasKnownSize && opt.KnownSize > 0 {
+		knownSize = opt.KnownSize
 	}
+	size := knownSize
 	ct := opt.ContentType
 	if ct == "" {
 		ct = "application/octet-stream"
@@ -362,11 +376,21 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 			_ = resp.Body.Close()
 			return nil, ct, written, fmt.Errorf("upstream returned JSON/manifest for docker blob (not a layer)")
 		}
-		if size < 0 && written == 0 {
-			if resp.ContentLength > 0 {
-				size = resp.ContentLength
-			} else if linked := parseLinkedSize(resp.Header.Get("X-Linked-Size")); linked > 0 {
-				size = linked
+		if written == 0 && !headerWritten {
+			getCL := resp.ContentLength
+			if getCL <= 0 {
+				if linked := parseLinkedSize(resp.Header.Get("X-Linked-Size")); linked > 0 {
+					getCL = linked
+				}
+			}
+			if getCL > 0 {
+				if knownSize > 0 && getCL != knownSize {
+					_ = resp.Body.Close()
+					return nil, ct, written, fmt.Errorf("upstream size mismatch: head=%d get=%d", knownSize, getCL)
+				}
+				size = getCL
+			} else if knownSize > 0 {
+				size = knownSize
 			}
 		}
 		// 禁止向客户端声明 CL=0（containerd size of zero）
@@ -460,10 +484,18 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 	}
 
 	if !completed {
-		return nil, ct, written, fmt.Errorf("incomplete download: got %d after %d resume attempts", written, streamMaxResume)
+		err := fmt.Errorf("incomplete download: got %d after %d resume attempts", written, streamMaxResume)
+		if headerWritten {
+			abortHTTPBody(w)
+		}
+		return nil, ct, written, err
 	}
-	if size >= 0 && written != size {
-		return nil, ct, written, fmt.Errorf("incomplete download: got %d want %d", written, size)
+	if size > 0 && written != size {
+		err := fmt.Errorf("incomplete download: got %d want %d", written, size)
+		if headerWritten {
+			abortHTTPBody(w)
+		}
+		return nil, ct, written, err
 	}
 	if err := f.Close(); err != nil {
 		return nil, ct, written, err
@@ -472,9 +504,8 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 	opt.resolveExpectedDigest()
 	digest := opt.ExpectedSHA256
 	if err := verifyAndRemember(tmp, opt); err != nil {
-		// 已向客户端写出正文：降级为无摘要入库，避免「客户端已拿到文件但本地无缓存」
-		// （否则断网上游时二次请求无法 HIT）
-		if headerWritten {
+		// 已向客户端写出正文：非 docker 可降级无摘要入库；docker blob 禁止无 digest HIT
+		if headerWritten && opt.Platform != "docker" {
 			if e.log != nil {
 				e.log.Warn("stream digest verify failed after client write; caching without digest",
 					zap.String("url", opt.metaSource()),
@@ -484,6 +515,7 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 			digest = ""
 		} else {
 			_ = os.Remove(tmp)
+			cleanupTmp = true
 			return nil, ct, written, err
 		}
 	}
@@ -597,6 +629,15 @@ func (e *Engine) copyStreamToClientAndFile(
 func flushWriter(w http.ResponseWriter) {
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
+	}
+}
+
+// abortHTTPBody 已写 CL 后无法再发 502：尽量掐断连接，避免客户端无限等剩余字节。
+func abortHTTPBody(w http.ResponseWriter) {
+	if hj, ok := w.(http.Hijacker); ok {
+		if conn, _, err := hj.Hijack(); err == nil && conn != nil {
+			_ = conn.Close()
+		}
 	}
 }
 

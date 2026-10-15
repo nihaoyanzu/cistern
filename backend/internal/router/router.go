@@ -17,6 +17,7 @@ type Match struct {
 	SmallFileBoost bool
 	// ReadOnly 为 true 时仅允许 GET/HEAD。
 	ReadOnly bool
-	// SkipUpstreamHead 交互冷路径跳过上游 HEAD（npm/docker/goproxy/maven 制品）。
+	// SkipUpstreamHead 交互冷路径跳过上游 HEAD（npm/goproxy/maven 等）。
+	// Docker blob / HuggingFace 等需 Content-Length 校验的路径不得设置。
 	SkipUpstreamHead bool
 }

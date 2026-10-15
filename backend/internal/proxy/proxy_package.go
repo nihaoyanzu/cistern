@@ -34,7 +34,7 @@ func looksLikeNonArtifactBlobType(ct string) bool {
 	return false
 }
 
-func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router.Match, plat platform.Platform, cfg config.Config, pypi config.PlatformConfig, prefetch, boost bool, onAcquired func(), onProgress func(done, total int64), taskID string) (string, string, error) {
+func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router.Match, plat platform.Platform, cfg config.Config, pypi config.PlatformConfig, prefetch, boost bool, onAcquired, onWaiting func(), onProgress func(done, total int64), taskID string) (string, string, error) {
 	origURL := m.TargetURL
 	headers := platform.FilterRequestHeaders(r.Header)
 	cacheKey := cache.KeyFromURL(origURL)
@@ -49,32 +49,62 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		}
 	}
 
-	if auther, ok := plat.(platform.UpstreamAuther); ok {
-		if err := auther.InjectUpstreamAuth(r.Context(), headers, cfg, r.URL.Path); err != nil {
-			if entry, ok := s.cache.Get(cacheKey, m.Platform); ok {
-				return s.servePackageHit(w, r, entry, boost, onAcquired, onProgress)
-			}
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			// 无本地缓存且鉴权/回源前失败：记 miss，避免访问日志显示为「-」
-			return "miss", "proxy", err
+	// 鉴权+HEAD+占槽准备阶段墙钟上限 60s
+	prepareCtx, prepareCancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer prepareCancel()
+
+	injectAuth := func() error {
+		auther, ok := plat.(platform.UpstreamAuther)
+		if !ok {
+			return nil
 		}
+		return auther.InjectUpstreamAuth(prepareCtx, headers, cfg, r.URL.Path)
+	}
+	invalidateAuth := func() {
+		if inv, ok := plat.(platform.UpstreamAuthInvalidator); ok {
+			inv.InvalidateUpstreamAuth(cfg, r.URL.Path)
+		}
+	}
+
+	if err := injectAuth(); err != nil {
+		if entry, ok := s.cache.Get(cacheKey, m.Platform); ok {
+			return s.servePackageHit(w, r, entry, boost, onAcquired, onProgress)
+		}
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return "miss", "proxy", err
 	}
 
 	if entry, ok := s.cache.Get(cacheKey, m.Platform); ok {
 		if entry.Size <= 0 {
-			// 零长度脏条目（历史 HEAD/入库异常）：删掉并回源，避免 containerd size of zero
 			_ = s.cache.Delete(cacheKey)
 		} else {
 			return s.servePackageHit(w, r, entry, boost, onAcquired, onProgress)
 		}
 	}
 
+	headProbe := func() (int64, string, string, error) {
+		headCtx, headCancel := context.WithTimeout(prepareCtx, 15*time.Second)
+		defer headCancel()
+		return s.dl.Head(headCtx, origURL, headers)
+	}
+	isAuthFail := func(err error) bool {
+		if err == nil {
+			return false
+		}
+		msg := strings.ToLower(err.Error())
+		return strings.Contains(msg, "401") || strings.Contains(msg, "403") ||
+			strings.Contains(msg, "unauthorized") || strings.Contains(msg, "forbidden")
+	}
+
 	// HEAD 请求直接探测上游文件大小，绕过 task semaphore 避免被暂停的 prefetch 任务阻塞。
 	if r.Method == http.MethodHead {
-		// 给 HEAD 请求一个短超时，避免被上游慢连接阻塞
-		headCtx, headCancel := context.WithTimeout(r.Context(), 15*time.Second)
-		defer headCancel()
-		size, ct, _, headErr := s.dl.Head(headCtx, origURL, headers)
+		size, ct, _, headErr := headProbe()
+		if headErr != nil && isAuthFail(headErr) {
+			invalidateAuth()
+			if err := injectAuth(); err == nil {
+				size, ct, _, headErr = headProbe()
+			}
+		}
 		if headErr != nil {
 			http.Error(w, headErr.Error(), http.StatusBadGateway)
 			return "miss", "proxy", headErr
@@ -122,9 +152,15 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	hasSize := false
 	// SkipUpstreamHead：交互冷路径跳过上游 HEAD；Docker blob / HF 等需 CL 校验的不设此标志
 	skipHead := m.SkipUpstreamHead && !prefetch
-	// 交互路径：Begin 时已 MarkPreparing；真正占槽下载时由 OnAcquired→MarkRunning
+	// 真正占槽下载时由 OnAcquired→MarkRunning
 	if !skipHead {
-		hs, headCT, finalURL, headErr := s.dl.Head(r.Context(), origURL, headers)
+		hs, headCT, finalURL, headErr := headProbe()
+		if headErr != nil && isAuthFail(headErr) {
+			invalidateAuth()
+			if err := injectAuth(); err == nil {
+				hs, headCT, finalURL, headErr = headProbe()
+			}
+		}
 		if headErr != nil {
 			if m.Platform == "docker" {
 				http.Error(w, headErr.Error(), http.StatusBadGateway)
@@ -186,6 +222,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		ExpectedSHA256: expectedSHA,
 		RangeHeader:    r.Header.Get("Range"),
 		OnAcquired:     onAcquired,
+		OnWaiting:      onWaiting,
 		OnProgress:     onProgress,
 	}
 
@@ -195,8 +232,6 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		strat := "stream"
 		if label == "hit" {
 			strat = "cache"
-		} else if hasSize && size >= pypi.Download.MinSize && pypi.Download.MinSize > 0 {
-			strat = "parallel-stream"
 		}
 		// 未写响应头就失败时补 502，避免净空 200
 		if err != nil && !tw.wrote {
