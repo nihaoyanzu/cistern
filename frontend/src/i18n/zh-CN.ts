@@ -27,7 +27,7 @@ export default {
     updateError: '无法检测更新：{error}',
     updateConfirmTitle: '确认升级',
     updateConfirmDesc:
-      '将从 {current} 升级到 {latest}。升级会清空当前预拉取/调度队列并重启服务；本地缓存文件越多，重启加载越慢，请耐心等待。是否继续？',
+      '将从 {current} 升级到 {latest}。升级会清空当前预拉取/调度队列并重启服务。是否继续？',
     updateApply: '立即升级',
     updateApplying: '正在升级…',
     updateApplied: '升级完成，服务已恢复',
@@ -320,18 +320,21 @@ export default {
     moduleGoproxy: 'Go',
     moduleHuggingFace: 'Hugging Face',
     moduleMaven: 'Maven',
-    npmUpstreamHint: 'registry 元数据与 tarball 上游；留空则使用默认官方源 https://registry.npmmirror.com',
+    npmUpstreamHint: 'registry 元数据与 tarball 上游；留空则用官方源 https://registry.npmjs.org。',
     npmPrefetchHint: 'npm 预取请在「预拉取」页粘贴 package.json，或 package-lock.json / pnpm-lock.yaml。',
-    dockerUpstreamHint: 'Registry 上游（manifest 与 blob 共用）；留空则使用默认官方源 https://docker.m.daocloud.io。只读 pull-through，不支持登录与 push。',
+    dockerUpstreamHint:
+      'Registry 上游（manifest 与 blob 共用）；留空则用官方 Docker Hub（registry-1.docker.io）。只读 pull-through，不支持登录与 push。',
     dockerPrefetchHint: '在「预拉取」页粘贴 image:tag 列表；离线前必须预取或完整 pull，仅启用模块不等于已缓存。',
     dockerArchHint: '预取将按所选平台映射架构（如 linux → linux/amd64）；选错架构会导致离线缺层。',
     goproxyUpstreamHint:
-      'Module / 文件 / SumDB 共用此上游；留空则使用默认官方源 https://goproxy.cn。只读缓存，不代理私有模块鉴权。',
+      'Module / 文件 / SumDB 共用此上游；留空则用官方 proxy.golang.org（SumDB 为 sum.golang.org）。只读缓存，不代理私有模块鉴权。',
     goproxyPrefetchHint: '在「预拉取」页粘贴 go.mod 或 go.sum；仅展开文件中显式版本，完整闭包可用 go mod download 经本代理灌满。',
-    huggingfaceUpstreamHint: 'Hub 上游；留空则使用默认官方源 https://hf-mirror.com。公开仓匿名，gated 在下方填组织 Token。',
+    huggingfaceUpstreamHint:
+      'Hub 上游；留空则用官方 https://huggingface.co。公开仓匿名，gated 在下方填组织 Token。',
     huggingfacePrefetchHint:
       "在「预拉取」页粘贴 owner/repo 或 datasets/owner/repo（可 {'@'}revision）；将按 tree 展开全部文件。",
-    mavenUpstreamHint: 'Maven2 仓库上游（索引与制品共用）；留空则使用默认官方源阿里云 central。只读缓存，不支持 deploy。',
+    mavenUpstreamHint:
+      'Maven2 仓库上游（索引与制品共用）；留空则用官方 Maven Central（repo1.maven.org）。只读缓存，不支持 deploy。',
     mavenPrefetchHint:
       '在「预拉取」页粘贴 pom.xml、gradle.properties（key=group:artifact:version）或多行 GAV；将展开 pom+jar 依赖闭包（跳过 test）。',
     mavenRepoUpstream: '仓库上游',
@@ -339,7 +342,8 @@ export default {
     registryUpstream: 'Registry 上游',
     blobUpstream: 'Blob 上游',
     authUpstream: 'Auth 上游（Token）',
-    authUpstreamHint: '联网回源时向 auth.docker.io 获取匿名 pull Token；留空则使用默认官方源 auth.docker.io。纯离线命中缓存不需要 Token。',
+    authUpstreamHint:
+      '联网回源时向鉴权服务获取匿名 pull Token；留空则用官方 https://auth.docker.io。纯离线命中缓存不需要 Token。',
     moduleUpstream: 'Module 上游',
     moduleFileUpstream: 'Module 文件上游',
     sumdbUpstream: 'SumDB 上游',
@@ -352,9 +356,10 @@ export default {
     indexUpstream: '索引上游',
     fileUpstream: '包文件上游',
     pypiUpstream: 'PyPI 上游',
-    pypiUpstreamHint: '索引与包文件共用此上游；留空则使用默认官方源。',
+    pypiUpstreamHint: '索引与包文件共用此上游；留空则用官方 https://pypi.org。',
     metadataUpstream: '元数据上游',
-    metadataHint: '阿里云、清华等镜像均不提供 PEP 658 元数据，仅官方 PyPI 支持。留空回退到上游；修改前请确认目标源支持 .metadata。',
+    metadataHint:
+      '多数镜像不提供 PEP 658 元数据。留空则用官方 https://files.pythonhosted.org；修改前请确认目标源支持 .metadata。',
     testAccess: '测试连接',
     testAccessDesc: '已探测 {n} 个已开启模块（使用页面上未保存的草稿配置）。',
     testRunningDesc: '正在探测 {n} 个已开启模块，请稍候…',

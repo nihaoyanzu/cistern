@@ -153,8 +153,9 @@ export const MODULES: ModuleDescriptor[] = [
       prefetchLabelKey: 'nav.prefetch',
     },
     defaults: {
-      upstream: 'https://registry-1.docker.io',
-      file_upstream: 'https://registry-1.docker.io',
+      // 与后端首次安装种子一致（国内镜像）；表单留空保存后由后端回落官方源
+      upstream: 'https://docker.m.daocloud.io',
+      file_upstream: 'https://docker.m.daocloud.io',
       metadata_upstream: 'https://auth.docker.io',
     },
     fields: {
@@ -232,8 +233,8 @@ export const MODULES: ModuleDescriptor[] = [
       prefetchLabelKey: 'nav.prefetch',
     },
     defaults: {
-      upstream: 'https://huggingface.co',
-      file_upstream: 'https://huggingface.co',
+      upstream: 'https://hf-mirror.com',
+      file_upstream: 'https://hf-mirror.com',
       metadata_upstream: '',
     },
     fields: {

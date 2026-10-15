@@ -585,8 +585,8 @@ function goAccount() {
     <div class="app-sidebar-foot shrink-0 px-4 py-3">
       <button
         type="button"
-        class="flex w-full items-center gap-2 rounded-md px-1 py-0.5 text-left text-xs text-muted
-          transition hover:bg-panel hover:text-fg"
+        class="flex w-full cursor-pointer items-center gap-2 rounded-md px-1 py-0.5 text-left text-xs
+          text-muted transition hover:bg-panel hover:text-fg disabled:cursor-not-allowed"
         :disabled="applying"
         @click="onVersionClick"
       >

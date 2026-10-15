@@ -27,7 +27,7 @@ export default {
     updateError: 'Update check failed: {error}',
     updateConfirmTitle: 'Confirm upgrade',
     updateConfirmDesc:
-      'Upgrade from {current} to {latest}? This clears the prefetch/queue and restarts the service. More local cache files mean a slower restart — please wait.',
+      'Upgrade from {current} to {latest}? This clears the prefetch/queue and restarts the service.',
     updateApply: 'Upgrade now',
     updateApplying: 'Upgrading…',
     updateApplied: 'Upgrade complete, service is back',
@@ -320,21 +320,21 @@ export default {
     moduleHuggingFace: 'Hugging Face',
     moduleMaven: 'Maven',
     npmUpstreamHint:
-      'Registry metadata & tarball upstream; leave empty for the default official source https://registry.npmmirror.com',
+      'Registry metadata & tarball upstream; leave empty for official https://registry.npmjs.org.',
     npmPrefetchHint: 'For npm prefetch, paste package.json, or package-lock.json / pnpm-lock.yaml on the Prefetch page.',
     dockerUpstreamHint:
-      'Registry upstream (shared by manifests and blobs); leave empty for the default official https://docker.m.daocloud.io. Read-only pull-through (no login / push).',
+      'Registry upstream (shared by manifests and blobs); leave empty for official Docker Hub (registry-1.docker.io). Read-only pull-through (no login / push).',
     dockerPrefetchHint: 'Paste image:tag lists on Prefetch. Prefetch or full pull is required before offline use; enabling the module alone does not cache images.',
     dockerArchHint: 'Prefetch maps selected platforms to arches (e.g. linux → linux/amd64). Wrong arch means missing layers offline.',
     goproxyUpstreamHint:
-      'Module / files / SumDB share this upstream; leave empty for the default official source https://goproxy.cn. Read-only, no private module auth.',
+      'Module / files / SumDB share this upstream; leave empty for official proxy.golang.org (SumDB: sum.golang.org). Read-only, no private module auth.',
     goproxyPrefetchHint: 'Paste go.mod or go.sum on Prefetch. Only explicit versions are expanded; use go mod download via this proxy to fill the full graph.',
     huggingfaceUpstreamHint:
-      'Hub upstream; leave empty for the default official https://hf-mirror.com. Public repos anonymous; gated needs org Token below.',
+      'Hub upstream; leave empty for official https://huggingface.co. Public repos anonymous; gated needs org Token below.',
     huggingfacePrefetchHint:
       "Paste owner/repo or datasets/owner/repo (optional {'@'}revision) on Prefetch; all files are expanded via tree API.",
     mavenUpstreamHint:
-      'Maven2 repository upstream (shared by indexes and artifacts); leave empty for the default official Aliyun central. Read-only, no deploy.',
+      'Maven2 repository upstream (shared by indexes and artifacts); leave empty for official Maven Central (repo1.maven.org). Read-only, no deploy.',
     mavenPrefetchHint:
       'Paste pom.xml, gradle.properties (key=group:artifact:version), or GAV lines on Prefetch; expands pom+jar closure (skips test scope).',
     mavenRepoUpstream: 'Repository Upstream',
@@ -343,7 +343,7 @@ export default {
     blobUpstream: 'Blob Upstream',
     authUpstream: 'Auth Upstream (token)',
     authUpstreamHint:
-      'Anonymous pull tokens from auth.docker.io when fetching upstream; leave empty for the default official auth.docker.io. Pure cache hits need no token.',
+      'Anonymous pull tokens from Docker Hub auth when fetching upstream; leave empty for official https://auth.docker.io. Pure cache hits need no token.',
     moduleUpstream: 'Module Upstream',
     moduleFileUpstream: 'Module File Upstream',
     sumdbUpstream: 'SumDB Upstream',
@@ -357,9 +357,10 @@ export default {
     fileUpstream: 'File Upstream',
     pypiUpstream: 'PyPI Upstream',
     pypiUpstreamHint:
-      'Index and package files share this upstream; leave empty for the default official source.',
+      'Index and package files share this upstream; leave empty for official https://pypi.org.',
     metadataUpstream: 'Metadata Upstream',
-    metadataHint: 'Other mirrors do not provide PEP 658 metadata. Only official PyPI supports it. Leave empty to fall back to the file upstream.',
+    metadataHint:
+      'Most mirrors lack PEP 658 metadata. Leave empty for official https://files.pythonhosted.org; confirm the target supports .metadata before changing.',
     testAccess: 'Test Connection',
     testAccessDesc: 'Probed {n} enabled module(s) (uses unsaved draft settings on this page).',
     testRunningDesc: 'Probing {n} enabled module(s)…',

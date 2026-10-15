@@ -512,9 +512,13 @@ func applyDefaults(cfg *Config) {
 	}
 }
 
-// defaultPlatformSeed 新建配置时的平台初始条目（含 Enabled）。
+func defaultDownload() DownloadConfig {
+	return DownloadConfig{Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024}
+}
+
+// defaultPlatformSeed 仅用于「首次写入 / 缺平台条目」的国内镜像初值；已有配置不会被它覆盖。
 func defaultPlatformSeed(id string) PlatformConfig {
-	dl := DownloadConfig{Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024}
+	dl := defaultDownload()
 	switch id {
 	case "pypi":
 		return PlatformConfig{
@@ -549,21 +553,59 @@ func defaultPlatformSeed(id string) PlatformConfig {
 	}
 }
 
-// NormalizePlatform 空上游字段填该平台当前默认；FileUpstream 空则跟 Upstream。
-// 供 applyDefaults 与探测草稿共用；不含旧 URL 迁移。
+// officialPlatformSeed 上游字段留空时回落的官方源（与首次国内默认分离）。
+func officialPlatformSeed(id string) PlatformConfig {
+	dl := defaultDownload()
+	switch id {
+	case "pypi":
+		return PlatformConfig{
+			Upstream: "https://pypi.org", FileUpstream: "https://pypi.org",
+			MetadataUpstream: "https://files.pythonhosted.org", Download: dl,
+		}
+	case "npm":
+		return PlatformConfig{
+			Upstream: "https://registry.npmjs.org", FileUpstream: "https://registry.npmjs.org", Download: dl,
+		}
+	case "docker":
+		return PlatformConfig{
+			Upstream: "https://registry-1.docker.io", FileUpstream: "https://registry-1.docker.io",
+			MetadataUpstream: "https://auth.docker.io", Download: dl,
+		}
+	case "goproxy":
+		return PlatformConfig{
+			Upstream: "https://proxy.golang.org", FileUpstream: "https://proxy.golang.org",
+			MetadataUpstream: "https://sum.golang.org", Download: dl,
+		}
+	case "huggingface":
+		return PlatformConfig{
+			Upstream: "https://huggingface.co", FileUpstream: "https://huggingface.co", Download: dl,
+		}
+	case "maven":
+		return PlatformConfig{
+			Upstream: "https://repo1.maven.org/maven2", FileUpstream: "https://repo1.maven.org/maven2", Download: dl,
+		}
+	default:
+		return PlatformConfig{Download: dl}
+	}
+}
+
+// NormalizePlatform 空上游回落官方源；FileUpstream 空则跟 Upstream。
+// 下载参数空则用默认并发等。供 applyDefaults 与探测草稿共用。
+// 注意：已有非空上游（含首次写入的国内镜像）不会被改写。
 func NormalizePlatform(id string, p PlatformConfig) PlatformConfig {
-	seed := defaultPlatformSeed(id)
+	dl := defaultDownload()
+	official := officialPlatformSeed(id)
 	if p.Download.Concurrency <= 0 {
-		p.Download.Concurrency = seed.Download.Concurrency
+		p.Download.Concurrency = dl.Concurrency
 	}
 	if p.Download.ChunkSize <= 0 {
-		p.Download.ChunkSize = seed.Download.ChunkSize
+		p.Download.ChunkSize = dl.ChunkSize
 	}
 	if p.Download.MinSize <= 0 {
-		p.Download.MinSize = seed.Download.MinSize
+		p.Download.MinSize = dl.MinSize
 	}
 	if strings.TrimSpace(p.Upstream) == "" {
-		p.Upstream = seed.Upstream
+		p.Upstream = official.Upstream
 	}
 	if strings.TrimSpace(p.FileUpstream) == "" {
 		p.FileUpstream = p.Upstream
@@ -571,15 +613,20 @@ func NormalizePlatform(id string, p PlatformConfig) PlatformConfig {
 	switch id {
 	case "pypi":
 		if strings.TrimSpace(p.MetadataUpstream) == "" {
-			p.MetadataUpstream = seed.MetadataUpstream
+			p.MetadataUpstream = official.MetadataUpstream
 		}
 	case "docker":
 		if strings.TrimSpace(p.MetadataUpstream) == "" {
-			p.MetadataUpstream = seed.MetadataUpstream
+			p.MetadataUpstream = official.MetadataUpstream
 		}
 	case "goproxy":
 		if strings.TrimSpace(p.MetadataUpstream) == "" {
-			p.MetadataUpstream = p.Upstream
+			// 上游已是官方 proxy 时用官方 sum；否则与 Module 上游一致（如 goproxy.cn）
+			if strings.TrimRight(strings.TrimSpace(p.Upstream), "/") == strings.TrimRight(official.Upstream, "/") {
+				p.MetadataUpstream = official.MetadataUpstream
+			} else {
+				p.MetadataUpstream = p.Upstream
+			}
 		}
 	}
 	p.RateLimit = nil
