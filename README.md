@@ -47,22 +47,30 @@ Clients never need the admin port. Operators never confuse “proxy for users”
 - **Large artifacts** → **HTTP Range parallel chunks** (saturate the allowed egress, then stick locally)
 - **Index links** rewrite to *this* download host automatically from the request **Host** — LAN machines just point at MirrorHub; no brittle hard-coded public URL in most setups
 
-### 3. Interactive-first scheduling (design center)
+### 3. Interactive-first scheduling (design center) 👑
 
-Bandwidth and concurrency are scheduled like an ops product, not a dumb pipe:
+Bandwidth and concurrency are scheduled like an ops product — **never a dumb pipe**:
 
 | Class | Role | Behavior |
 |-------|------|----------|
-| **P0** Interactive | Someone is waiting on `pip install` | **No bandwidth shaping** — finish the human job first |
-| **P1** Resume | Prefetch paused mid-flight | Soft-pause / resume without throwing away progress when possible |
-| **P2** Prefetch | Background warm-up | Yields under load; time-window limits apply here |
+| 🚨 **P0** Interactive | Someone is waiting on `pip install` | **Zero shaping** — human waits always cut the line |
+| ♻️ **P1** Resume | Prefetch paused mid-flight | Soft-pause / resume — **don’t throw the whole download away** |
+| 🌙 **P2** Prefetch | Background warm-up | Yields under load; windowed limits squeeze here |
 
-Result: daytime installs stay snappy; nights and idle windows fill the cache.
+Daytime installs feel **LAN-fast**; nights and idle windows **stuff the cache to the brim**.
 
-### 4. Prefetch that respects the link
+### 4. Prefetch that respects the link 🔥
 
-Paste requirements / `pyproject` dependency lines → resolve the dependency closure → warm the cache ahead of the rush.  
-Prefetch is first-class in the UI (queue, progress, batch cancel) so you can see and control backfill instead of guessing.
+Paste requirements / `pyproject` lines → resolve the closure → **flood the cache before peak hour**.  
+Prefetch is first-class in the UI: live queue, progress, batch cancel — **see the backfill, steer it, never blind-pull**.
+
+Queue **🧹 Clear** menu — three blast radii, zero ambiguity:
+
+| Level | Job | Blast radius |
+|-------|-----|--------------|
+| 🧾 **Clear finished** | Sweep history noise | done / error / cancelled only |
+| 🎯 **Clear prefetch** | Stop background warm-up | **P1/P2 only** — interactive **P0 stays untouched** |
+| 💥 **Clear all** | Nuke the battlefield | **Includes P0** — even in-flight installs get cancelled |
 
 ### 5. Download first, use offline later
 
@@ -108,9 +116,10 @@ Platforms are **modules** (enable, upstreams, download knobs). PyPI, npm, Docker
 | 📝 | Host-aware index rewrite | Clients use the address they already hit |
 | 🌐 | Server-side upstream proxy | Configure egress **once** |
 | 🎚️ | Windowed rate limits | Protect the shared pipe; don’t punish interactive installs |
-| 🔥 | Prefetch + live queue UX | Warm cache with progress you can trust |
-| 📊 | Admin UI | Capacity, hits, P0/P1, packages, settings in one place |
-| 🧩 | Modular platforms | Same ops model across PyPI / npm / Docker / Go / HF / Maven |
+| 🔥 | Prefetch + live queue UX | Progress you can trust; 🧹 three clears (finished / prefetch / 💥incl. P0) |
+| 📊 | Admin UI | Capacity, hits, P0/P1, packages, settings — **one panel to rule them** |
+| 🚀 | Online upgrade & restart | GitHub one-click update; ⚠️ danger-zone hot restart |
+| 🧩 | Modular platforms | PyPI / npm / Docker / Go / HF / Maven — **one ops muscle memory** |
 
 ---
 
@@ -229,19 +238,21 @@ docker compose up -d
 
 Image: `ghcr.io/nihaoyanzu/mirrorhub:latest`. Local build: `docker compose up -d --build`.
 
-### 2. First-time admin config
+### 2. First-time setup
 
 Defaults are usually enough:
 
 ```text
-Login: admin / admin
+Guide http://localhost:18082/ (no login)
+  · Builds download URLs from the Host you used to open the page
+  · Index links rewrite from request Host — no hard-coded public URL to fill in
 
-System settings
-  · Local addresses → readonly hints for clients (IP:download-port)
-  · Public Host → leave empty to rewrite from request Host
+Admin login: admin / admin (seeded on first boot; change later under Account)
+
+System → Network
   · Upstream proxy → empty (direct) or socks5://127.0.0.1:1080 if required
 
-PyPI module
+Platforms → PyPI
   · Enabled: yes
   · Index / file upstream → https://mirrors.aliyun.com/pypi (or your mirror)
 ```
@@ -270,8 +281,9 @@ pip ──► /simple/     index (links rewritten to the download service)
        HIT ✅ local    MISS ❌ backfill (optional upstream proxy) → cache
 ```
 
-Prefetch, queues (with progress), and package search live in the admin UI.  
-Rate limits: **System → pull rate** (aimed at prefetch; interactive stays preferred).
+✨ Prefetch, live queues, package search — all in the admin UI; **🧹 Clear** on the queue page nukes by scope (finished / prefetch-only / 💥 incl. P0).  
+🎚️ Rate limits: **System → pull rate** (bandwidth shaping hits prefetch only; **interactive P0 stays full-speed**).  
+🚀 Online upgrade + **Restart service** → **System → ⚠️ Danger zone** (blocked mid-upgrade so you don’t half-swap a running binary).
 
 ### 4. Other clients
 
