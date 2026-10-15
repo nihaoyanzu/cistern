@@ -92,6 +92,18 @@ function hasErrorDetail(task: QueueTask) {
   return task.status === 'error' && !!(task.error || task.url || task.detail)
 }
 
+function formatTaskError(task: QueueTask): string {
+  const code = (task.error_code || '').trim()
+  if (code) {
+    const key = `queue.errorCodes.${code}`
+    const mapped = t(key)
+    if (mapped && mapped !== key) {
+      return task.error ? `${mapped} — ${task.error}` : mapped
+    }
+  }
+  return task.error || ''
+}
+
 function isExpanded(id: string) {
   return expandedId.value === id
 }
@@ -294,9 +306,9 @@ async function confirmCancelSelected() {
                     <div
                       v-if="task.error && !isExpanded(task.id)"
                       class="mt-1 truncate text-xs text-danger"
-                      :title="task.error"
+                      :title="formatTaskError(task)"
                     >
-                      {{ task.error }}
+                      {{ formatTaskError(task) }}
                     </div>
                   </div>
                 </div>
@@ -327,7 +339,7 @@ async function confirmCancelSelected() {
                 <div class="space-y-2 text-xs">
                   <div v-if="task.error">
                     <div class="mb-1 font-medium text-danger">{{ t('status.error') }}</div>
-                    <pre class="overflow-x-auto whitespace-pre-wrap break-all font-mono text-danger/90">{{ task.error }}</pre>
+                    <pre class="overflow-x-auto whitespace-pre-wrap break-all font-mono text-danger/90">{{ formatTaskError(task) }}</pre>
                   </div>
                   <div v-if="task.detail && task.detail !== task.label">
                     <div class="mb-1 font-medium text-muted">{{ t('queue.task') }}</div>

@@ -93,6 +93,7 @@ export interface QueueTask {
   status: string
   priority: string
   error: string
+  error_code?: string
   wait_ms: number | null
   elapsed_ms?: number | null
   bytes_done?: number

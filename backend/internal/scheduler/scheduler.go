@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/livehl/mirrorhub/internal/config"
+	"github.com/livehl/mirrorhub/internal/downloader"
 	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
 	"github.com/livehl/mirrorhub/internal/metrics"
 	"github.com/livehl/mirrorhub/internal/ratelimit"
@@ -53,9 +54,10 @@ type TaskInfo struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	WaitMs    int64     `json:"wait_ms"`
 	ElapsedMs int64     `json:"elapsed_ms"` // 下载耗时：running=至今；终态=StartedAt→UpdatedAt
-	BytesDone int64     `json:"bytes_done"`
-	BytesTotal int64    `json:"bytes_total"`
-	Error     string    `json:"error,omitempty"`
+	BytesDone  int64  `json:"bytes_done"`
+	BytesTotal int64  `json:"bytes_total"`
+	Error      string `json:"error,omitempty"`
+	ErrorCode  string `json:"error_code,omitempty"`
 
 	// wantP0：制品交互任务，MarkRunning 时才计入 p0Active 并 pause（preparing/inflight 等待不占 P0）。
 	// countsActive：当前是否已计入 p0Active；pause 时把运行中 P2 改标为 P1 不改此标记，避免 End 误减。
@@ -408,13 +410,16 @@ func (s *Scheduler) End(id string, err error) {
 			if isCancelErr(err) {
 				t.Status = "cancelled"
 				t.Error = ""
+				t.ErrorCode = ""
 			} else {
 				t.Status = "error"
 				t.Error = err.Error()
+				t.ErrorCode = extractErrorCode(err)
 				metrics.ErrorsTotal.WithLabelValues("task").Inc()
 			}
 		} else {
 			t.Status = "done"
+			t.ErrorCode = ""
 		}
 		s.releaseActiveLocked(t)
 	}
@@ -450,8 +455,21 @@ func isCancelErr(err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return true
 	}
+	if downloader.ClassOf(err) == downloader.ClassCancel {
+		return true
+	}
 	msg := err.Error()
 	return strings.Contains(msg, "context canceled") || strings.Contains(msg, "context cancelled")
+}
+
+func extractErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	if c := downloader.ErrorCode(err); c != "" {
+		return c
+	}
+	return ""
 }
 
 func isPrefetchCancellable(prio string) bool {

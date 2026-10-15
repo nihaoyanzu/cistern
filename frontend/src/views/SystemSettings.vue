@@ -524,6 +524,7 @@ onMounted(() => {
           <div>
             <label class="ui-label">{{ t('platform.concurrency') }}</label>
             <input v-model.number="form.max_concurrent" type="number" min="1" class="ui-input" />
+            <p class="mt-1 text-xs text-muted">{{ t('platform.concurrencyHint') }}</p>
           </div>
           <div>
             <label class="ui-label">{{ t('platform.rangeConnections') }}</label>
@@ -583,6 +584,7 @@ onMounted(() => {
         <div>
           <label class="ui-label">{{ t('platform.chunkConcurrency') }}</label>
           <input v-model.number="form.concurrency" type="number" min="1" class="ui-input" />
+          <p class="mt-1 text-xs text-muted">{{ t('platform.chunkConcurrencyHint') }}</p>
         </div>
         <div>
           <label class="ui-label">{{ t('platform.chunkSize') }}</label>
