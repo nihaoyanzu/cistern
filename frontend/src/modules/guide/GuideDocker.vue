@@ -22,18 +22,6 @@ const snippets = computed<GuideSnippet[]>(() => [
     title: t('guide.dockerDaemon'),
     text: `{\n  "registry-mirrors": ["${props.baseURL}"],\n  "insecure-registries": ["${props.displayHost}"]\n}`,
   },
-  {
-    key: 'dockerCompat',
-    title: t('guide.dockerCompatNote'),
-    text:
-      '# Docker 24+/29 containerd image store\n' +
-      '# If pulls fail with "content size of zero", either upgrade MirrorHub\n' +
-      '# or temporarily disable containerd-snapshotter, e.g.:\n' +
-      '#   {\n' +
-      '#     "features": { "containerd-snapshotter": false }\n' +
-      '#   }\n' +
-      '# Then: systemctl restart docker',
-  },
 ])
 </script>
 

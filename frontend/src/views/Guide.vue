@@ -7,8 +7,10 @@ import { api, getToken, type PublicGuide } from '@/api/client'
 import { setLocale, type SupportedLocale } from '@/i18n'
 import { guideFallbackModules, MODULE_BY_ID } from '@/modules/registry'
 import { GUIDE_SECTIONS } from '@/modules/guide/sections'
+import { useThemeStore } from '@/stores/theme'
 
 const { t, locale } = useI18n()
+const theme = useThemeStore()
 const loading = ref(true)
 const guide = ref<PublicGuide | null>(null)
 const copied = ref('')
@@ -114,6 +116,19 @@ onMounted(async () => {
           </div>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="ui-btn-ghost !px-2.5 !py-1.5 text-xs"
+            :title="theme.isDark ? t('common.themeLight') : t('common.themeDark')"
+            @click="theme.toggle()"
+          >
+            <svg v-if="theme.isDark" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 2a1 1 0 011 1v1a1 1 0 01-2 0V3a1 1 0 011-1zm4.22 1.78a1 1 0 011.41 0l.71.71a1 1 0 01-1.41 1.41l-.71-.71a1 1 0 010-1.41zM18 9a1 1 0 010 2h-1a1 1 0 010-2h1zm-2.78 6.22a1 1 0 00-1.41 0l-.71.71a1 1 0 001.41 1.41l.71-.71a1 1 0 000-1.41zM10 16a1 1 0 011 1v1a1 1 0 01-2 0v-1a1 1 0 011-1zm-5.22-1.78a1 1 0 000-1.41l-.71-.71a1 1 0 00-1.41 1.41l.71.71a1 1 0 001.41 0zM4 11a1 1 0 010-2H3a1 1 0 010 2h1zm2.78-6.22a1 1 0 001.41 0l.71-.71A1 1 0 007.49 2.66l-.71.71a1 1 0 000 1.41zM10 7a3 3 0 100 6 3 3 0 000-6z" />
+            </svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+            </svg>
+          </button>
           <button type="button" class="ui-btn-ghost !py-1.5 text-xs" @click="toggleLang">
             {{ locale === 'zh-CN' ? 'EN' : '中文' }}
           </button>
