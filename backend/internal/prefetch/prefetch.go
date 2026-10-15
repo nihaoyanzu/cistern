@@ -305,3 +305,79 @@ func (s *Service) Cancel(urlOrID string) bool {
 	}
 	return stopped || marked
 }
+
+// CancelMatching 取消本平台（空=全部）活跃预取 P1/P2，并打断下载 ctx、清空待展开 manual。
+func (s *Service) CancelMatching(platform string) int {
+	platform = normalizePrefetchPlatform(platform)
+	n := s.sched.CancelMatching(scheduler.Match{Platform: platform, PrefetchOnly: true}, true)
+	s.abortDownloadsMatching(platform)
+	s.clearManualMatching(platform)
+	return n
+}
+
+// Purge 同一调度锁内取消预取（P1/P2）并清理已结束任务，再打断下载 ctx / manual（不伤 P0）。
+func (s *Service) Purge(platform string) (cancelled, cleared int) {
+	platform = normalizePrefetchPlatform(platform)
+	cancelled, cleared = s.sched.PurgePrefetch(platform)
+	s.abortDownloadsMatching(platform)
+	s.clearManualMatching(platform)
+	return cancelled, cleared
+}
+
+// PurgeAll 取消匹配平台全部活跃任务（含 P0）并清理已结束，再打断预取下载 ctx / manual。
+func (s *Service) PurgeAll(platform string) (cancelled, cleared int) {
+	platform = normalizePrefetchPlatform(platform)
+	cancelled, cleared = s.sched.PurgeAll(platform)
+	s.abortDownloadsMatching(platform)
+	s.clearManualMatching(platform)
+	return cancelled, cleared
+}
+
+func normalizePrefetchPlatform(platform string) string {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	switch platform {
+	case "hf":
+		return "huggingface"
+	case "go":
+		return "goproxy"
+	default:
+		return platform
+	}
+}
+
+func (s *Service) abortDownloadsMatching(platform string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg := s.cfg.Get()
+	for rawURL, cancel := range s.cancel {
+		if platform != "" {
+			plat, _ := platformForURL(cfg, rawURL)
+			name := "pypi"
+			if plat != nil {
+				name = plat.Name()
+			}
+			if name != platform {
+				continue
+			}
+		}
+		cancel()
+		delete(s.cancel, rawURL)
+	}
+}
+
+func (s *Service) clearManualMatching(platform string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if platform == "" {
+		s.manual = nil
+		return
+	}
+	kept := s.manual[:0]
+	for _, it := range s.manual {
+		if platformNameForItem(it) == platform {
+			continue
+		}
+		kept = append(kept, it)
+	}
+	s.manual = kept
+}

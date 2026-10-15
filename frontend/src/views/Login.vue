@@ -74,10 +74,21 @@ async function submit() {
               />
               <button
                 type="button"
-                class="absolute right-2 top-1/2 -translate-y-1/2 ui-btn-ghost !py-1 text-xs"
+                class="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted hover:bg-panel hover:text-fg"
+                :aria-label="showPwd ? t('login.hide') : t('login.show')"
+                :title="showPwd ? t('login.hide') : t('login.show')"
                 @click="showPwd = !showPwd"
               >
-                {{ showPwd ? t('login.hide') : t('login.show') }}
+                <!-- 密文：睁眼；明文：划线眼 -->
+                <svg v-if="!showPwd" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7s-8.268-2.943-9.542-7z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M10.585 10.587a2 2 0 002.828 2.83" />
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.363 5.365A9.466 9.466 0 0112 5c4.478 0 8.268 2.943 9.542 7a9.52 9.52 0 01-1.563 3.03M6.228 6.228A9.493 9.493 0 002.458 12c1.274 4.057 5.065 7 9.542 7 1.605 0 3.118-.35 4.47-.98" />
+                </svg>
               </button>
             </div>
           </div>

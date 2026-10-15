@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/PageHeader.vue'
+import QueueClearMenu from '@/components/QueueClearMenu.vue'
 import TaskTable from '@/components/TaskTable.vue'
 import { useQueueStore, type QueueStatusFilter } from '@/stores/queue'
 import { useToastStore } from '@/stores/toast'
@@ -55,14 +56,6 @@ async function cancelMany(ids: string[]) {
   }
 }
 
-async function clearFinished() {
-  try {
-    const n = await queueStore.clearFinished()
-    toast.ok(t('queue.clearedOk', { n }))
-  } catch (e: any) {
-    toast.err(e.message || t('queue.clearFailed'))
-  }
-}
 </script>
 
 <template>
@@ -70,7 +63,7 @@ async function clearFinished() {
     <PageHeader :title="t('queue.title')">
       <template #actions>
         <span class="ui-badge-muted">{{ t('queue.running') }} {{ queueStore.runningCount }}</span>
-        <button type="button" class="ui-btn" @click="clearFinished">{{ t('queue.clearFinished') }}</button>
+        <QueueClearMenu />
         <span class="h-4 w-px bg-line" />
         <button
           v-for="f in filters"

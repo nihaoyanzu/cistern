@@ -511,7 +511,7 @@
   }
 
   .user-menu-item {
-    @apply flex w-full px-3.5 py-2.5 text-left text-base text-muted transition
+    @apply flex w-full cursor-pointer px-3.5 py-2.5 text-left text-base text-muted transition
       hover:bg-panel-2 hover:text-fg;
   }
 }

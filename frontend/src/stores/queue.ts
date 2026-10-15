@@ -78,10 +78,24 @@ export const useQueueStore = defineStore('queue', () => {
     await load(true)
   }
 
-  async function clearFinished() {
-    const res = await api.clearQueue()
+  async function clearFinished(platform?: string) {
+    const res = await api.clearQueue({ mode: 'finished', platform })
     await load(true)
     return res.cleared ?? 0
+  }
+
+  async function clearPrefetch(platform?: string) {
+    // 仅 P1/P2，不伤 P0
+    const res = await api.clearQueue({ mode: 'prefetch', platform })
+    await load(true)
+    return { cancelled: res.cancelled ?? 0, cleared: res.cleared ?? 0 }
+  }
+
+  async function clearAll(platform?: string) {
+    // 含 P0 交互下载
+    const res = await api.clearQueue({ mode: 'all', platform })
+    await load(true)
+    return { cancelled: res.cancelled ?? 0, cleared: res.cleared ?? 0 }
   }
 
   function startPolling(intervalMs = 3000) {
@@ -119,6 +133,8 @@ export const useQueueStore = defineStore('queue', () => {
     cancel,
     cancelMany,
     clearFinished,
+    clearPrefetch,
+    clearAll,
     startPolling,
     stopPolling,
   }

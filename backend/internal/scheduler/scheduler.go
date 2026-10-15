@@ -458,6 +458,25 @@ func isPrefetchCancellable(prio string) bool {
 	return prio == PriorityPrefetch.String() || prio == PriorityResume.String()
 }
 
+// Match 批量取消/清理过滤条件。
+type Match struct {
+	Platform     string // 空=全部平台
+	PrefetchOnly bool   // true=仅 P1/P2
+}
+
+func (m Match) matchTask(t *TaskInfo) bool {
+	if t == nil {
+		return false
+	}
+	if m.Platform != "" && t.Platform != m.Platform {
+		return false
+	}
+	if m.PrefetchOnly && !isPrefetchCancellable(t.Priority) {
+		return false
+	}
+	return true
+}
+
 // URLOf 按任务 id 取 URL；不存在则 ok=false。
 func (s *Scheduler) URLOf(id string) (string, bool) {
 	s.mu.Lock()
@@ -759,27 +778,11 @@ func (s *Scheduler) cancelTask(idOrURL string, prefetchOnly bool) (taskURL strin
 	return taskURL, ok
 }
 
-// CancelAllActive 取消全部活跃任务并触发已 Bind 的 context cancel。
-// resume=false 时不武装 ResumeOnIdle（Clear 清空完成前不得恢复预取）。
-func (s *Scheduler) CancelAllActive(resume bool) int {
+// CancelMatching 按条件取消活跃任务并 abort 已 Bind 的 context。
+// resume=false 时不武装 ResumeOnIdle（Clear/Purge 完成前不得恢复预取）。
+func (s *Scheduler) CancelMatching(m Match, resume bool) int {
 	s.mu.Lock()
-	var abortIDs []string
-	n := 0
-	for _, tid := range s.order {
-		t := s.tasks[tid]
-		if t == nil || !isActiveCancellableStatus(t.Status) {
-			continue
-		}
-		t.Status = "cancelled"
-		t.UpdatedAt = time.Now()
-		t.Error = ""
-		s.releaseActiveLocked(t)
-		abortIDs = append(abortIDs, t.ID)
-		n++
-	}
-	if n > 0 {
-		s.refreshTaskMetricsLocked()
-	}
+	abortIDs, n := s.cancelMatchingLocked(m)
 	s.mu.Unlock()
 	for _, id := range abortIDs {
 		s.abortBound(id)
@@ -790,15 +793,49 @@ func (s *Scheduler) CancelAllActive(resume bool) int {
 	return n
 }
 
-// ClearFinished 清理已结束任务（done/error/cancelled），返回清理数量。
-func (s *Scheduler) ClearFinished() int {
+// cancelMatchingLocked 假定已持 s.mu；返回需 abort 的 task id 与取消数量。
+func (s *Scheduler) cancelMatchingLocked(m Match) (abortIDs []string, n int) {
+	now := time.Now()
+	for _, tid := range s.order {
+		t := s.tasks[tid]
+		if t == nil || !isActiveCancellableStatus(t.Status) || !m.matchTask(t) {
+			continue
+		}
+		t.Status = "cancelled"
+		t.UpdatedAt = now
+		t.Error = ""
+		s.releaseActiveLocked(t)
+		abortIDs = append(abortIDs, t.ID)
+		n++
+	}
+	if n > 0 {
+		s.refreshTaskMetricsLocked()
+	}
+	return abortIDs, n
+}
+
+// CancelAllActive 取消全部活跃任务（含 P0）；resume 语义同 CancelMatching。
+func (s *Scheduler) CancelAllActive(resume bool) int {
+	return s.CancelMatching(Match{}, resume)
+}
+
+// ClearFinishedMatching 清理已结束任务（done/error/cancelled）；platform 空=全部。
+func (s *Scheduler) ClearFinishedMatching(platform string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.clearFinishedMatchingLocked(platform)
+}
+
+func (s *Scheduler) clearFinishedMatchingLocked(platform string) int {
 	n := 0
 	kept := s.order[:0]
 	for _, id := range s.order {
 		t, ok := s.tasks[id]
 		if !ok {
+			continue
+		}
+		if platform != "" && t.Platform != platform {
+			kept = append(kept, id)
 			continue
 		}
 		if t.Status == "done" || t.Status == "error" || t.Status == "cancelled" {
@@ -813,4 +850,34 @@ func (s *Scheduler) ClearFinished() int {
 	s.pruneFinishedLocked(time.Now())
 	s.refreshTaskMetricsLocked()
 	return n
+}
+
+// ClearFinished 清理全部已结束任务。
+func (s *Scheduler) ClearFinished() int {
+	return s.ClearFinishedMatching("")
+}
+
+// PurgePrefetch 同一把锁内取消匹配预取（P1/P2）并清理已结束任务，再解锁 abort。
+// 不触碰 P0；避免 Cancel+Clear 分两次调用时中间又入队的竞态。
+func (s *Scheduler) PurgePrefetch(platform string) (cancelled, cleared int) {
+	return s.purgeMatching(Match{Platform: platform, PrefetchOnly: true})
+}
+
+// PurgeAll 同一把锁内取消匹配平台全部活跃任务（含 P0）并清理已结束任务。
+func (s *Scheduler) PurgeAll(platform string) (cancelled, cleared int) {
+	return s.purgeMatching(Match{Platform: platform, PrefetchOnly: false})
+}
+
+func (s *Scheduler) purgeMatching(m Match) (cancelled, cleared int) {
+	s.mu.Lock()
+	abortIDs, cancelled := s.cancelMatchingLocked(m)
+	cleared = s.clearFinishedMatchingLocked(m.Platform)
+	s.mu.Unlock()
+	for _, id := range abortIDs {
+		s.abortBound(id)
+	}
+	if cancelled > 0 || cleared > 0 {
+		s.resumePrefetchIfIdle()
+	}
+	return cancelled, cleared
 }

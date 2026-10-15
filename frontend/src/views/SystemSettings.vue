@@ -20,7 +20,9 @@ const saving = ref(false)
 const dirty = ref(false)
 const pwdSaving = ref(false)
 const showClearModal = ref(false)
+const showRestartModal = ref(false)
 const clearing = ref(false)
+const restarting = ref(false)
 const tab = ref<'network' | 'rate' | 'concurrency' | 'download' | 'cache' | 'account'>('network')
 
 /** 保存分片时回写全部平台；保留接入字段 */
@@ -285,6 +287,36 @@ async function clearCache() {
   } finally {
     clearing.value = false
     showClearModal.value = false
+  }
+}
+
+async function waitForHealth(timeoutMs = 120_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1500))
+    try {
+      const res = await fetch('/health', { cache: 'no-store' })
+      if (res.ok) return true
+    } catch {
+      /* 重启中 */
+    }
+  }
+  return false
+}
+
+async function restartService() {
+  restarting.value = true
+  showRestartModal.value = false
+  try {
+    await api.restartService()
+    toast.ok(t('platform.restarting'))
+    const ok = await waitForHealth()
+    if (ok) toast.ok(t('platform.restartOk'))
+    else toast.err(t('platform.restartFailed'))
+  } catch (e: any) {
+    toast.err(e?.message || t('platform.restartFailed'))
+  } finally {
+    restarting.value = false
   }
 }
 
@@ -587,11 +619,21 @@ onMounted(() => {
         </div>
       </div>
       <div class="border-t border-danger/20 pt-5">
-        <h3 class="mb-2 text-sm font-medium text-danger">{{ t('platform.dangerZone') }}</h3>
-        <p class="mb-4 text-xs text-muted">{{ t('platform.clearCacheDesc') }}</p>
-        <button class="ui-btn-danger" :disabled="clearing" @click="showClearModal = true">
-          {{ t('platform.clearCache') }}
-        </button>
+        <h3 class="mb-4 text-sm font-medium text-danger">{{ t('platform.dangerZone') }}</h3>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="rounded-md border border-line/80 p-4">
+            <p class="mb-3 text-xs text-muted">{{ t('platform.clearCacheDesc') }}</p>
+            <button class="ui-btn-danger" :disabled="clearing || restarting" @click="showClearModal = true">
+              {{ t('platform.clearCache') }}
+            </button>
+          </div>
+          <div class="rounded-md border border-line/80 p-4">
+            <p class="mb-3 text-xs text-muted">{{ t('platform.restartServiceDesc') }}</p>
+            <button class="ui-btn-danger" :disabled="clearing || restarting" @click="showRestartModal = true">
+              {{ restarting ? t('platform.restarting') : t('platform.restartService') }}
+            </button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -640,6 +682,14 @@ onMounted(() => {
       danger
       @cancel="showClearModal = false"
       @confirm="clearCache"
+    />
+    <ModalDialog
+      v-model:visible="showRestartModal"
+      :title="t('platform.restartService')"
+      :description="t('platform.restartServiceConfirm')"
+      danger
+      @cancel="showRestartModal = false"
+      @confirm="restartService"
     />
   </div>
 </template>

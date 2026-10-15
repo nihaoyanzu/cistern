@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
+import QueueClearMenu from '@/components/QueueClearMenu.vue'
 import TaskTable from '@/components/TaskTable.vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
@@ -119,7 +120,11 @@ onUnmounted(() => queueStore.stopPolling())
 
 <template>
   <div>
-    <PageHeader :title="t('prefetch.title')" />
+    <PageHeader :title="t('prefetch.title')">
+      <template #actions>
+        <QueueClearMenu :platform="moduleId" />
+      </template>
+    </PageHeader>
 
     <section class="ui-panel mb-5 p-4 sm:p-5">
       <div class="mb-3 flex items-start justify-between gap-2">

@@ -155,8 +155,22 @@ export const api = {
       }),
     }),
   cancelPrefetch: (id: string) =>
-    request<void>(`/api/v1/prefetch?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  clearQueue: () => request<{ cleared: number }>('/api/v1/queue', { method: 'DELETE' }),
+    request<{ cancelled: boolean }>(`/api/v1/prefetch?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  cancelAllPrefetch: (platform?: string) => {
+    const q = new URLSearchParams({ scope: 'all' })
+    if (platform) q.set('platform', platform)
+    return request<{ cancelled: number }>(`/api/v1/prefetch?${q}`, { method: 'DELETE' })
+  },
+  clearQueue: (opts?: { mode?: 'finished' | 'prefetch' | 'all'; platform?: string }) => {
+    const q = new URLSearchParams()
+    q.set('mode', opts?.mode || 'finished')
+    if (opts?.platform) q.set('platform', opts.platform)
+    return request<{ cancelled: number; cleared: number }>(`/api/v1/queue?${q}`, {
+      method: 'DELETE',
+    })
+  },
   getUpdate: (force?: boolean) =>
     request<UpdateStatus>(`/api/v1/update${force ? '?force=1' : ''}`),
   applyUpdate: () =>
@@ -165,4 +179,6 @@ export const api = {
     }),
   cancelUpdate: () =>
     request<{ ok: boolean; message: string }>('/api/v1/update', { method: 'DELETE' }),
+  restartService: () =>
+    request<{ ok: boolean; message: string }>('/api/v1/system/restart', { method: 'POST' }),
 }

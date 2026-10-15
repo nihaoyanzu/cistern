@@ -17,13 +17,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/livehl/mirrorhub/internal/config"
 	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/livehl/mirrorhub/internal/reexec"
 	"github.com/livehl/mirrorhub/internal/version"
 )
 
@@ -432,7 +432,7 @@ func (c *Checker) Apply(ctx context.Context) (err error) {
 		zap.String("exe", exe),
 	)
 	unlocked = true
-	err = syscall.Exec(exe, os.Args, os.Environ())
+	err = reexec.Self()
 	unlocked = false
 	return fmt.Errorf("重启失败: %w", err)
 }

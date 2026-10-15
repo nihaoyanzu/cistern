@@ -28,6 +28,7 @@ import (
 	_ "github.com/livehl/mirrorhub/internal/platform/pypi"
 	"github.com/livehl/mirrorhub/internal/prefetch"
 	"github.com/livehl/mirrorhub/internal/ratelimit"
+	"github.com/livehl/mirrorhub/internal/reexec"
 	"github.com/livehl/mirrorhub/internal/scheduler"
 	"github.com/livehl/mirrorhub/internal/traffic"
 	"github.com/livehl/mirrorhub/internal/update"
@@ -123,6 +124,7 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/update", s.getUpdate)
 			r.Post("/update", s.postUpdate)
 			r.Delete("/update", s.deleteUpdate)
+			r.Post("/system/restart", s.postRestart)
 		})
 	})
 
@@ -421,9 +423,39 @@ func (s *Server) getQueue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) clearQueue(w http.ResponseWriter, _ *http.Request) {
-	n := s.sched.ClearFinished()
-	writeJSON(w, http.StatusOK, map[string]any{"cleared": n})
+	func (s *Server) clearQueue(w http.ResponseWriter, r *http.Request) {
+		mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
+		if mode == "" {
+			mode = "finished"
+		}
+		platform := normalizeQueuePlatform(r.URL.Query().Get("platform"))
+		switch mode {
+		case "finished":
+			n := s.sched.ClearFinishedMatching(platform)
+			writeJSON(w, http.StatusOK, map[string]any{"cancelled": 0, "cleared": n})
+		case "prefetch":
+			// 仅取消 P1/P2 并清理已结束，交互 P0 不受影响
+			cancelled, cleared := s.prefetch.Purge(platform)
+			writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled, "cleared": cleared})
+		case "all":
+			// 取消全部活跃（含 P0）并清理已结束
+			cancelled, cleared := s.prefetch.PurgeAll(platform)
+			writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled, "cleared": cleared})
+		default:
+			http.Error(w, "mode 须为 finished、prefetch 或 all", http.StatusBadRequest)
+		}
+	}
+
+func normalizeQueuePlatform(platform string) string {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	switch platform {
+	case "hf":
+		return "huggingface"
+	case "go":
+		return "goproxy"
+	default:
+		return platform
+	}
 }
 
 type prefetchReq struct {
@@ -532,9 +564,16 @@ func (s *Server) postPrefetch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deletePrefetch(w http.ResponseWriter, r *http.Request) {
+	scope := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope")))
+	if scope == "all" {
+		platform := normalizeQueuePlatform(r.URL.Query().Get("platform"))
+		n := s.prefetch.CancelMatching(platform)
+		writeJSON(w, http.StatusOK, map[string]any{"cancelled": n})
+		return
+	}
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		http.Error(w, "id required", http.StatusBadRequest)
+		http.Error(w, "id required（或 scope=all）", http.StatusBadRequest)
 		return
 	}
 	// 预取 P1/P2 与交互 P0 均可取消（Cancel 内走 CancelTask）
@@ -620,6 +659,30 @@ func (s *Server) deleteUpdate(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "已请求取消升级"})
+}
+
+func (s *Server) postRestart(w http.ResponseWriter, _ *http.Request) {
+	prog := s.updater.SnapshotProgress()
+	switch prog.Phase {
+	case update.PhasePreparing, update.PhaseDownloading, update.PhaseVerifying,
+		update.PhaseReplacing, update.PhaseRestarting:
+		http.Error(w, "升级正在进行中，无法重启", http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"ok":      true,
+		"message": "服务即将重启",
+	})
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		s.log.Info("manual restart requested, re-exec")
+		if err := reexec.Self(); err != nil {
+			s.log.Error("restart failed", zap.Error(err))
+		}
+	}()
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

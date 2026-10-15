@@ -29,13 +29,15 @@ function onOverlayOrEscape() {
 }
 
 function onCancel() {
-  emit('update:visible', false)
+  // 先 cancel 再关窗，避免父组件用同一状态驱动 visible 时动作丢失
   emit('cancel')
+  emit('update:visible', false)
 }
 
 function onConfirm() {
-  emit('update:visible', false)
+  // 先 confirm 再关窗，避免父组件在 update:visible 里清空动作上下文
   emit('confirm')
+  emit('update:visible', false)
 }
 </script>
 
