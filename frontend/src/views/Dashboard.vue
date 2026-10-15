@@ -7,7 +7,7 @@ import StatTile from '@/components/StatTile.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DonutChart from '@/components/DonutChart.vue'
 import { useStatsStore } from '@/stores/stats'
-import { fmtBytes, fmtRate, hitRate } from '@/lib/format'
+import { fmtBytes, fmtRate, fmtWaitMs, hitRate } from '@/lib/format'
 import { MODULE_BY_ID, MODULES, moduleColor } from '@/modules/registry'
 
 const { t } = useI18n()
@@ -221,8 +221,8 @@ function platformLabel(id: string) {
                   {{ r.prefetch_paused ? t('dashboard.paused') : t('dashboard.running') }}
                 </span>
               </td>
-              <td class="text-right font-mono text-xs">{{ r.rate_limit_wait_p50 }} ms</td>
-              <td class="text-right font-mono text-xs">{{ r.rate_limit_wait_p95 }} ms</td>
+              <td class="text-right font-mono text-xs">{{ fmtWaitMs(r.rate_limit_wait_p50) }} ms</td>
+              <td class="text-right font-mono text-xs">{{ fmtWaitMs(r.rate_limit_wait_p95) }} ms</td>
             </tr>
           </tbody>
         </table>

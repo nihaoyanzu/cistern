@@ -15,6 +15,13 @@ export function fmtRate(bps: number): string {
   return `${fmtBytes(bps)}/s`
 }
 
+/** 限速等待 P50/P95：为 0 显示 0，否则最多 3 位小数（单位 ms） */
+export function fmtWaitMs(ms: number | null | undefined): string {
+  const n = Number(ms)
+  if (!Number.isFinite(n) || n <= 0) return '0'
+  return n.toFixed(3)
+}
+
 /**
  * 将毫秒格式化为可读时长：精确到下一单位（如 2小时15分钟 / 3分钟20秒），不下沉到毫秒。
  * 排队中尚未满 1 秒时显示「不到1秒」。
