@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -32,10 +31,11 @@ type Service struct {
 	sched *scheduler.Scheduler
 	log   *zap.Logger
 
-	mu     sync.Mutex
-	manual []string
-	cancel map[string]context.CancelFunc
-	root   context.Context
+	mu      sync.Mutex
+	manual  []string
+	cancel  map[string]context.CancelFunc
+	root    context.Context
+	delayed []delayedItem
 }
 
 func New(cfg *config.Manager, c *cache.Manager, dl *downloader.Engine, sched *scheduler.Scheduler, log *zap.Logger) *Service {
@@ -70,14 +70,19 @@ func (s *Service) Enqueue(items []string) {
 }
 
 func (s *Service) loop(ctx context.Context) {
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
+	var manualTick int
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.drainManual(ctx)
+			s.drainDelayed(ctx)
+			manualTick++
+			if manualTick%8 == 0 { // ~16s
+				s.drainManual(ctx)
+			}
 		}
 	}
 }
@@ -190,89 +195,6 @@ func (s *Service) RememberDigest(rawURL, sha256hex string) {
 	downloader.RememberDigest(rawURL, sha256hex)
 }
 
-func (s *Service) startOne(ctx context.Context, rawURL string) {
-	s.mu.Lock()
-	if _, ok := s.cancel[rawURL]; ok {
-		s.mu.Unlock()
-		return
-	}
-	cctx, cancel := context.WithCancel(ctx)
-	s.cancel[rawURL] = cancel
-	s.mu.Unlock()
-
-	go func() {
-		defer func() {
-			s.mu.Lock()
-			delete(s.cancel, rawURL)
-			s.mu.Unlock()
-			cancel()
-		}()
-		cfg := s.cfg.Get()
-		plat, pcfg := platformForURL(cfg, rawURL)
-		platName := "pypi"
-		if plat != nil {
-			platName = plat.Name()
-		}
-		taskID := s.sched.Begin(platName, rawURL, scheduler.PriorityPrefetch, false, false)
-		s.sched.BindCancel(taskID, cancel)
-		defer s.sched.UnbindCancel(taskID)
-		if plat != nil && !pcfg.Enabled {
-			s.sched.MarkRunning(taskID)
-			err := fmt.Errorf("%s 模块未启用", platName)
-			s.sched.End(taskID, err)
-			s.log.Warn("prefetch skipped disabled platform", zap.String("url", rawURL), zap.Error(err))
-			return
-		}
-		cacheKey := cache.KeyFromURL(rawURL)
-		headers := http.Header{}
-		expectedSHA := downloader.LookupDigest(rawURL)
-		reqPath := ""
-		if u, err := url.Parse(rawURL); err == nil {
-			reqPath = u.Path
-		}
-		if plat != nil {
-			if keyer, ok := plat.(platform.PackageKeyer); ok {
-				key, sha := keyer.PackageCacheIdentity(reqPath, rawURL, headers, cacheKey)
-				cacheKey = key
-				if sha != "" {
-					expectedSHA = sha
-					downloader.RememberDigest(rawURL, sha)
-				}
-			}
-			if auther, ok := plat.(platform.UpstreamAuther); ok {
-				if err := auther.InjectUpstreamAuth(cctx, headers, cfg, reqPath); err != nil {
-					s.sched.MarkRunning(taskID)
-					s.sched.End(taskID, err)
-					s.log.Warn("prefetch auth failed", zap.String("url", rawURL), zap.Error(err))
-					return
-				}
-			}
-		}
-		_, err := s.dl.GetOrDownload(cctx, downloader.Options{
-			URL:            rawURL,
-			SourceURL:      rawURL,
-			CacheKey:       cacheKey,
-			Concurrency:    pcfg.Download.Concurrency,
-			ChunkSize:      pcfg.Download.ChunkSize,
-			MinSize:        pcfg.Download.MinSize,
-			TTLSeconds:     cfg.Cache.PackageTTLSeconds,
-			Platform:       platName,
-			Prefetch:       true,
-			TaskID:         taskID,
-			Headers:        headers,
-			ChunkTTLHours:  cfg.Cache.ChunkTTLHours,
-			Kind:           "package",
-			ExpectedSHA256: expectedSHA,
-			OnAcquired:     func() { s.sched.MarkRunning(taskID) },
-			OnProgress:     func(done, total int64) { s.sched.UpdateProgress(taskID, done, total) },
-		})
-		s.sched.End(taskID, err)
-		if err != nil && !strings.Contains(err.Error(), "context canceled") {
-			s.log.Warn("prefetch failed", zap.String("url", rawURL), zap.Error(err))
-		}
-	}()
-}
-
 func (s *Service) Cancel(urlOrID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -312,6 +234,7 @@ func (s *Service) CancelMatching(platform string) int {
 	n := s.sched.CancelMatching(scheduler.Match{Platform: platform, PrefetchOnly: true}, true)
 	s.abortDownloadsMatching(platform)
 	s.clearManualMatching(platform)
+	s.clearDelayedMatching(platform)
 	return n
 }
 
@@ -321,6 +244,7 @@ func (s *Service) Purge(platform string) (cancelled, cleared int) {
 	cancelled, cleared = s.sched.PurgePrefetch(platform)
 	s.abortDownloadsMatching(platform)
 	s.clearManualMatching(platform)
+	s.clearDelayedMatching(platform)
 	return cancelled, cleared
 }
 
@@ -330,6 +254,7 @@ func (s *Service) PurgeAll(platform string) (cancelled, cleared int) {
 	cancelled, cleared = s.sched.PurgeAll(platform)
 	s.abortDownloadsMatching(platform)
 	s.clearManualMatching(platform)
+	s.clearDelayedMatching(platform)
 	return cancelled, cleared
 }
 
