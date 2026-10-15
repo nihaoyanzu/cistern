@@ -226,3 +226,24 @@ export interface PlatformConfig {
     min_size: number
   }
 }
+
+export interface UpdateProgress {
+  phase: string
+  bytes_done: number
+  bytes_total: number
+  percent: number
+  message?: string
+  error?: string
+  can_cancel?: boolean
+}
+
+export interface UpdateStatus {
+  current: string
+  latest?: string
+  update_available: boolean
+  release_url?: string
+  asset_name?: string
+  error?: string
+  checked_at: string
+  progress: UpdateProgress
+}

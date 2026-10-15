@@ -9,6 +9,7 @@ import type {
   PrefetchResponse,
   QueueResponse,
   SystemStats,
+  UpdateStatus,
 } from '@/types/api'
 
 export interface PublicGuideModule {
@@ -156,4 +157,12 @@ export const api = {
   cancelPrefetch: (id: string) =>
     request<void>(`/api/v1/prefetch?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
   clearQueue: () => request<{ cleared: number }>('/api/v1/queue', { method: 'DELETE' }),
+  getUpdate: (force?: boolean) =>
+    request<UpdateStatus>(`/api/v1/update${force ? '?force=1' : ''}`),
+  applyUpdate: () =>
+    request<{ ok: boolean; message: string; from: string; to: string }>('/api/v1/update', {
+      method: 'POST',
+    }),
+  cancelUpdate: () =>
+    request<{ ok: boolean; message: string }>('/api/v1/update', { method: 'DELETE' }),
 }

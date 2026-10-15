@@ -1,4 +1,4 @@
-# MirrorHub 单容器部署：内置 SQLite + 管理台静态资源
+# MirrorHub 单容器部署：内置 SQLite + 嵌入管理台
 services:
   mirrorhub:
     image: ghcr.io/nihaoyanzu/mirrorhub:latest
@@ -11,7 +11,6 @@ services:
       - "18082:18082" # 管理台 Web / API
     environment:
       MIRRORHUB_DATA_DIR: /data
-      MIRRORHUB_WEB_DIR: /app/web
       MIRRORHUB_PROXY_ADDR: ":18081"
       MIRRORHUB_ADMIN_ADDR: ":18082"
       MIRRORHUB_LOG_LEVEL: info

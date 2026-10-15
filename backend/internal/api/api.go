@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -30,6 +31,9 @@ import (
 	"github.com/livehl/mirrorhub/internal/ratelimit"
 	"github.com/livehl/mirrorhub/internal/scheduler"
 	"github.com/livehl/mirrorhub/internal/traffic"
+	"github.com/livehl/mirrorhub/internal/update"
+	"github.com/livehl/mirrorhub/internal/version"
+	"github.com/livehl/mirrorhub/internal/webui"
 )
 
 type Server struct {
@@ -43,6 +47,7 @@ type Server struct {
 	traffic  *traffic.Recorder
 	log      *zap.Logger
 	webDir   string
+	updater  *update.Checker
 
 	catalogMu         sync.RWMutex
 	catalogNames      []string
@@ -62,7 +67,7 @@ type searchCacheEntry struct {
 }
 
 func New(cfg *config.Manager, c *cache.Manager, dl *downloader.Engine, lim *ratelimit.Registry, sched *scheduler.Scheduler, pf *prefetch.Service, authSvc *auth.Service, tr *traffic.Recorder, log *zap.Logger, webDir string) *Server {
-	return &Server{
+	s := &Server{
 		cfg:         cfg,
 		cache:       c,
 		dl:          dl,
@@ -73,8 +78,17 @@ func New(cfg *config.Manager, c *cache.Manager, dl *downloader.Engine, lim *rate
 		traffic:     tr,
 		log:         log,
 		webDir:      strings.TrimSpace(webDir),
+		updater:     update.New(cfg, log),
 		searchCache: map[string]searchCacheEntry{},
 	}
+	// 升级前取消全部活跃任务（含预拉取），重启后内存队列也会清空
+	s.updater.BeforeApply = func() {
+		if s.sched != nil {
+			n := s.sched.CancelAllActive(false)
+			s.log.Info("update: cleared active tasks before upgrade", zap.Int("cancelled", n))
+		}
+	}
+	return s
 }
 
 func (s *Server) Routes() http.Handler {
@@ -82,7 +96,7 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(s.cors)
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": version.Version})
 	})
 	r.Handle("/metrics", promhttp.Handler())
 
@@ -109,11 +123,17 @@ func (s *Server) Routes() http.Handler {
 			r.Get("/packages/detail", s.getPackage)
 			r.Get("/packages/{name}", s.getPackage)
 			r.Delete("/packages/entry", s.deletePackageEntry)
+			r.Get("/update", s.getUpdate)
+			r.Post("/update", s.postUpdate)
+			r.Delete("/update", s.deleteUpdate)
 		})
 	})
 
+	// 优先外部目录（本地热更）；否则用嵌入的管理台
 	if s.webDir != "" {
 		r.NotFound(spaFileServer(s.webDir))
+	} else {
+		r.NotFound(webui.Handler())
 	}
 	return r
 }
@@ -571,6 +591,63 @@ func (s *Server) clearCache(w http.ResponseWriter, _ *http.Request) {
 		s.sched.ResumePrefetchIfIdle()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"cleared": true})
+}
+
+func (s *Server) getUpdate(w http.ResponseWriter, r *http.Request) {
+	force := r.URL.Query().Get("force") == "1" || r.URL.Query().Get("refresh") == "1"
+	ctx := r.Context()
+	st := s.updater.Status(ctx, force)
+	writeJSON(w, http.StatusOK, st)
+}
+
+func (s *Server) postUpdate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	// 先刷新状态，确认有可用更新
+	st := s.updater.Status(ctx, true)
+	if st.Error != "" && !st.UpdateAvailable {
+		http.Error(w, st.Error, http.StatusBadGateway)
+		return
+	}
+	if !st.UpdateAvailable {
+		http.Error(w, "已是最新版本", http.StatusConflict)
+		return
+	}
+	prog := st.Progress
+	if prog.Phase == update.PhasePreparing || prog.Phase == update.PhaseDownloading ||
+		prog.Phase == update.PhaseVerifying || prog.Phase == update.PhaseReplacing ||
+		prog.Phase == update.PhaseRestarting {
+		http.Error(w, "升级正在进行中", http.StatusConflict)
+		return
+	}
+	// 先回写接受，再异步执行替换；Exec 会使进程立即被替换
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"ok":      true,
+		"message": "正在下载并应用更新，服务即将重启",
+		"from":    st.Current,
+		"to":      st.Latest,
+	})
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+	go func() {
+		applyCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		if err := s.updater.Apply(applyCtx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				s.log.Info("online update cancelled")
+				return
+			}
+			s.log.Error("online update failed", zap.Error(err))
+		}
+	}()
+}
+
+func (s *Server) deleteUpdate(w http.ResponseWriter, _ *http.Request) {
+	if err := s.updater.Cancel(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": "已请求取消升级"})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

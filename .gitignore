@@ -33,6 +33,9 @@ package-lock.json
 __pycache__/
 .pypirc
 dist/
+# 嵌入管理台占位与 CI 覆盖产物需可提交占位文件
+!backend/internal/webui/dist/
+!backend/internal/webui/dist/**
 
 scripts/
 

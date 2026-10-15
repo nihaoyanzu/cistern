@@ -9,9 +9,11 @@ import { useStatsStore } from '@/stores/stats'
 import { useModulesStore } from '@/stores/modules'
 import { setLocale, type SupportedLocale } from '@/i18n'
 import { api } from '@/api/client'
+import type { UpdateProgress, UpdateStatus } from '@/types/api'
 import { fmtBytes, fmtRate } from '@/lib/format'
 import { MODULES, moduleColor } from '@/modules/registry'
 import ModuleIcon from '@/components/ModuleIcon.vue'
+import ModalDialog from '@/components/ModalDialog.vue'
 
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -178,30 +180,248 @@ const p0Active = computed(() => Number(stats.value?.interactive_active ?? 0))
 const p1Active = computed(() => Number(stats.value?.resume_count ?? 0))
 const cacheSize = computed(() => Number(stats.value?.cache?.total_size ?? 0))
 
-const healthOk = ref(true)
-let healthTimer: number | undefined
+const updateStatus = ref<UpdateStatus | null>(null)
+const updateLoading = ref(false)
+const showResultModal = ref(false)
+const showConfirmModal = ref(false)
+const showProgressModal = ref(false)
+const applying = ref(false)
+const cancellingUpdate = ref(false)
+const resultText = ref('')
+const liveProgress = ref<UpdateProgress | null>(null)
+let updateTimer: number | undefined
+let progressTimer: number | undefined
 
-async function checkHealth() {
+const idleProgress = (): UpdateProgress => ({
+  phase: 'idle',
+  bytes_done: 0,
+  bytes_total: 0,
+  percent: 0,
+  can_cancel: false,
+})
+
+const displayVersion = computed(() => {
+  const v = updateStatus.value?.current || '…'
+  return v.startsWith('v') ? v : `v${v}`
+})
+
+const progressPercent = computed(() => {
+  const p = liveProgress.value
+  if (!p) return 0
+  if (p.percent > 0) return Math.min(100, Math.round(p.percent))
+  if (p.bytes_total > 0) return Math.min(100, Math.round((p.bytes_done / p.bytes_total) * 100))
+  return 0
+})
+
+const progressLabel = computed(() => {
+  const p = liveProgress.value
+  if (!p) return t('common.updateApplying')
+  if (p.phase === 'restarting') return t('common.updateProgressRestart')
+  if (p.phase === 'failed') return p.error || t('common.updateFailed')
+  if (p.phase === 'cancelled') return t('common.updateCancelled')
+  if (p.message) return p.message
+  return t('common.updateApplying')
+})
+
+const canCancelUpdate = computed(
+  () => !!liveProgress.value?.can_cancel && applying.value && !cancellingUpdate.value,
+)
+
+async function checkUpdate(force = false) {
+  updateLoading.value = true
   try {
-    const res = await fetch('/health')
-    healthOk.value = res.ok
-  } catch {
-    healthOk.value = false
+    updateStatus.value = await api.getUpdate(force)
+    if (updateStatus.value?.progress) {
+      liveProgress.value = updateStatus.value.progress
+    }
+  } catch (e: any) {
+    updateStatus.value = {
+      current: updateStatus.value?.current || 'dev',
+      update_available: false,
+      error: e?.message || String(e),
+      checked_at: new Date().toISOString(),
+      progress: updateStatus.value?.progress || idleProgress(),
+    }
+  } finally {
+    updateLoading.value = false
   }
+}
+
+function onVersionClick() {
+  if (updateLoading.value || applying.value) return
+  const st = updateStatus.value
+  if (st?.update_available) {
+    showConfirmModal.value = true
+    return
+  }
+  if (!st) {
+    resultText.value = t('common.updateChecking')
+    showResultModal.value = true
+    void checkUpdate(true).then(() => {
+      const next = updateStatus.value
+      if (next?.update_available) {
+        showResultModal.value = false
+        showConfirmModal.value = true
+        return
+      }
+      resultText.value = formatUpdateResult(next)
+    })
+    return
+  }
+  resultText.value = formatUpdateResult(st)
+  showResultModal.value = true
+  void checkUpdate(true).then(() => {
+    if (!showResultModal.value) return
+    const next = updateStatus.value
+    if (next?.update_available) {
+      showResultModal.value = false
+      showConfirmModal.value = true
+      return
+    }
+    resultText.value = formatUpdateResult(next)
+  })
+}
+
+function formatUpdateResult(st: UpdateStatus | null | undefined): string {
+  if (!st) return t('common.updateChecking')
+  if (st.error) return t('common.updateError', { error: st.error })
+  if (st.update_available) {
+    return t('common.updateConfirmDesc', {
+      current: st.current,
+      latest: st.latest || '',
+    })
+  }
+  return t('common.updateLatest', { current: st.current || 'dev' })
+}
+
+function stopProgressPoll() {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = undefined
+  }
+}
+
+async function pollUpdateProgressOnce(): Promise<string> {
+  try {
+    const st = await api.getUpdate(false)
+    updateStatus.value = st
+    liveProgress.value = st.progress || idleProgress()
+    return st.progress?.phase || 'idle'
+  } catch {
+    return 'unreachable'
+  }
+}
+
+async function waitForServiceBack() {
+  for (let i = 0; i < 60; i++) {
+    await new Promise((r) => setTimeout(r, 1500))
+    try {
+      const res = await fetch('/health')
+      if (res.ok) {
+        await checkUpdate(true)
+        return true
+      }
+    } catch {
+      /* 重启中 */
+    }
+  }
+  return false
+}
+
+async function confirmUpgrade() {
+  applying.value = true
+  cancellingUpdate.value = false
+  showProgressModal.value = true
+  liveProgress.value = {
+    phase: 'preparing',
+    bytes_done: 0,
+    bytes_total: 0,
+    percent: 0,
+    message: t('common.updateApplying'),
+    can_cancel: true,
+  }
+  try {
+    await api.applyUpdate()
+    stopProgressPoll()
+    progressTimer = window.setInterval(() => {
+      void pollUpdateProgressOnce()
+    }, 400)
+
+    let phase = await pollUpdateProgressOnce()
+    while (applying.value) {
+      phase = await pollUpdateProgressOnce()
+      if (phase === 'failed') {
+        toast.err(liveProgress.value?.error || t('common.updateFailed'))
+        break
+      }
+      if (phase === 'cancelled') {
+        toast.ok(t('common.updateCancelled'))
+        break
+      }
+      if (phase === 'restarting' || phase === 'unreachable') {
+        liveProgress.value = {
+          ...(liveProgress.value || idleProgress()),
+          phase: 'restarting',
+          percent: 100,
+          message: t('common.updateProgressWaiting'),
+          can_cancel: false,
+        }
+        stopProgressPoll()
+        const ok = await waitForServiceBack()
+        if (ok) toast.ok(t('common.updateApplied'))
+        else toast.err(t('common.updateFailed'))
+        break
+      }
+      await new Promise((r) => setTimeout(r, 400))
+    }
+  } catch (e: any) {
+    toast.err(e?.message || t('common.updateFailed'))
+  } finally {
+    stopProgressPoll()
+    applying.value = false
+    cancellingUpdate.value = false
+    showProgressModal.value = false
+  }
+}
+
+async function cancelUpgrade() {
+  if (!canCancelUpdate.value) return
+  cancellingUpdate.value = true
+  try {
+    await api.cancelUpdate()
+  } catch (e: any) {
+    toast.err(e?.message || t('common.updateFailed'))
+    cancellingUpdate.value = false
+  }
+}
+
+/** 升级进行中禁止关掉进度窗；可取消阶段点关闭=请求取消 */
+function onProgressVisible(v: boolean) {
+  if (v) {
+    showProgressModal.value = true
+    return
+  }
+  if (applying.value) {
+    if (canCancelUpdate.value) void cancelUpgrade()
+    showProgressModal.value = true
+    return
+  }
+  showProgressModal.value = false
 }
 
 onMounted(() => {
   session.refresh()
   modulesStore.refresh()
   statsStore.startPolling(3000)
-  checkHealth()
-  healthTimer = window.setInterval(checkHealth, 15000)
+  void checkUpdate(true)
+  updateTimer = window.setInterval(() => void checkUpdate(false), 6 * 60 * 60 * 1000)
   document.addEventListener('click', onDocClick)
 })
 
 onUnmounted(() => {
   statsStore.stopPolling()
-  if (healthTimer) clearInterval(healthTimer)
+  if (updateTimer) clearInterval(updateTimer)
+  stopProgressPoll()
   document.removeEventListener('click', onDocClick)
 })
 
@@ -362,15 +582,89 @@ function goAccount() {
     </nav>
 
     <div class="app-sidebar-foot shrink-0 px-4 py-3">
-      <div class="flex items-center gap-2 text-xs text-muted">
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 rounded-md px-1 py-0.5 text-left text-xs text-muted
+          transition hover:bg-panel hover:text-fg"
+        :disabled="applying"
+        @click="onVersionClick"
+      >
         <span
-          class="inline-block h-1.5 w-1.5 rounded-full"
-          :class="healthOk ? 'bg-ok' : 'bg-danger'"
+          class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+          :class="
+            updateStatus?.update_available
+              ? 'bg-warn animate-pulse'
+              : updateStatus?.error
+                ? 'bg-danger'
+                : 'bg-ok'
+          "
         />
-        <span>{{ healthOk ? t('common.connected') : t('common.unreachable') }}</span>
-      </div>
+        <span class="truncate font-mono">
+          <template v-if="updateStatus?.update_available">
+            {{ displayVersion }} · {{ t('common.updateAvailable') }}
+          </template>
+          <template v-else-if="updateLoading && !updateStatus">
+            {{ t('common.updateChecking') }}
+          </template>
+          <template v-else>
+            {{ displayVersion }}
+          </template>
+        </span>
+      </button>
     </div>
   </aside>
+
+  <ModalDialog
+    v-model:visible="showResultModal"
+    :title="t('common.updateResultTitle')"
+    :description="resultText"
+    hide-confirm
+  />
+  <ModalDialog
+    v-model:visible="showConfirmModal"
+    :title="t('common.updateConfirmTitle')"
+    :description="
+      t('common.updateConfirmDesc', {
+        current: updateStatus?.current || '',
+        latest: updateStatus?.latest || '',
+      })
+    "
+    :confirm-text="t('common.updateApply')"
+    @confirm="confirmUpgrade"
+  />
+  <ModalDialog
+    :visible="showProgressModal"
+    :title="t('common.updateProgressTitle')"
+    :hide-confirm="true"
+    :cancel-text="
+      canCancelUpdate
+        ? cancellingUpdate
+          ? t('common.updateCancelling')
+          : t('common.updateCancel')
+        : applying
+          ? t('common.updateProgressWaiting')
+          : t('common.close')
+    "
+    @update:visible="onProgressVisible"
+  >
+    <div class="space-y-3">
+      <p class="text-sm text-muted">{{ progressLabel }}</p>
+      <div class="h-2 overflow-hidden rounded-full bg-line">
+        <div
+          class="h-full rounded-full bg-accent transition-[width] duration-300"
+          :style="{ width: `${progressPercent}%` }"
+        />
+      </div>
+      <div class="flex justify-between font-mono text-xs text-muted">
+        <span>{{ progressPercent }}%</span>
+        <span v-if="(liveProgress?.bytes_total || 0) > 0">
+          {{ fmtBytes(liveProgress?.bytes_done || 0) }}
+          /
+          {{ fmtBytes(liveProgress?.bytes_total || 0) }}
+        </span>
+      </div>
+    </div>
+  </ModalDialog>
 
   <div class="flex min-h-screen flex-col lg:pl-[260px]">
     <header

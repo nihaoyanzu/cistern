@@ -24,6 +24,7 @@ import (
 	"github.com/livehl/mirrorhub/internal/ratelimit"
 	"github.com/livehl/mirrorhub/internal/scheduler"
 	"github.com/livehl/mirrorhub/internal/traffic"
+	"github.com/livehl/mirrorhub/internal/version"
 )
 
 func main() {
@@ -115,11 +116,15 @@ func main() {
 		}
 	}()
 	go func() {
+		webSrc := "embed"
 		if boot.WebDir != "" {
-			log.Info("admin listening", zap.String("addr", cfg.Server.AdminAddr), zap.String("web", boot.WebDir))
-		} else {
-			log.Info("admin listening", zap.String("addr", cfg.Server.AdminAddr))
+			webSrc = boot.WebDir
 		}
+		log.Info("admin listening",
+			zap.String("addr", cfg.Server.AdminAddr),
+			zap.String("web", webSrc),
+			zap.String("version", version.Version),
+		)
 		if err := adminHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal("admin server", zap.Error(err))
 		}
