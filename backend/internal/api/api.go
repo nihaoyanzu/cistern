@@ -293,14 +293,16 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		s.limiters.Update(cfg.RateLimit)
 	}
 	s.limiters.SetIdleRatio(cfg.Scheduler.Prefetch.IdleQuotaRatio)
+	s.limiters.SetInteractiveTaskReserve(cfg.Scheduler.Prefetch.OnInteractive == "continue")
 	if body.Cache != nil {
 		s.cache.SetMaxSizeGB(cfg.Cache.MaxSizeGB)
 	}
 	if body.UpstreamProxy != nil && s.dl != nil {
 		s.dl.SetUpstreamProxy(cfg.Server.UpstreamProxy)
 	}
+	// 热开 ResumeOnIdle：武装按平台 idle resume，不强制清仍有 P0 的平台
 	if body.Scheduler != nil && !prevResumeOnIdle && cfg.Scheduler.Prefetch.ResumeOnIdle && s.sched != nil {
-		s.sched.ApplyPrefetchResume()
+		s.sched.ResumePrefetchIfIdle()
 	}
 	if s.catalogRootURL() != prevUpstream {
 		s.kickCatalogRefresh(true)

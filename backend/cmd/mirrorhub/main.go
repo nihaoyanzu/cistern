@@ -75,6 +75,7 @@ func main() {
 	}
 
 	limiters := ratelimit.NewRegistry(cfg.RateLimit, cfg.Scheduler.Prefetch.IdleQuotaRatio)
+	limiters.SetInteractiveTaskReserve(cfg.Scheduler.Prefetch.OnInteractive == "continue")
 	sched := scheduler.New(limiters, func() config.SchedulerConfig {
 		return cfgMgr.Get().Scheduler
 	}, log)

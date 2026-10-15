@@ -11,15 +11,13 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 )
 
-// digests 记录索引里见到的 cleanURL / basename -> 摘要
-// 值为 64 位 sha256 hex，或 SRI（sha256-… / sha512-…）。
+// digests 记录完整 URL（及去 query）-> 摘要；值为 sha256 hex 或 SRI。
 var digests sync.Map
 
 var (
@@ -156,16 +154,13 @@ func storeDigest(rawURL, value string) {
 		return
 	}
 	digests.Store(clean, value)
+	// 仅完整 URL（及去 query）建索引，避免 path.Base 跨包碰撞
 	if u, err := url.Parse(clean); err == nil {
-		base := path.Base(u.Path)
-		if base != "" && base != "." && base != "/" {
-			digests.Store(base, value)
-		}
 		u.RawQuery = ""
 		u.Fragment = ""
-		digests.Store(u.String(), value)
-	} else if base := path.Base(clean); base != "" {
-		digests.Store(base, value)
+		if s := u.String(); s != "" && s != clean {
+			digests.Store(s, value)
+		}
 	}
 	scheduleDigestSave()
 }
@@ -179,15 +174,6 @@ func LookupDigest(rawURL string) string {
 		u.RawQuery = ""
 		u.Fragment = ""
 		if v, ok := digests.Load(u.String()); ok {
-			return v.(string)
-		}
-		base := path.Base(u.Path)
-		if v, ok := digests.Load(base); ok {
-			return v.(string)
-		}
-	}
-	if base := path.Base(clean); base != "" {
-		if v, ok := digests.Load(base); ok {
 			return v.(string)
 		}
 	}

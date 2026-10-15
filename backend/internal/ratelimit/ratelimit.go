@@ -31,14 +31,17 @@ type PlatformLimiter struct {
 	activeBoost    int
 	activeConns    int
 	prefetchPaused bool
-	waitSamples    []float64 // 秒，滑动窗口
+	// taskReserve：OnInteractive=continue 时非交互任务槽保留；pause 模式为 false
+	taskReserve bool
+	waitSamples []float64 // 秒，滑动窗口
 }
 
 type Registry struct {
-	mu        sync.RWMutex
-	byName    map[string]*PlatformLimiter
-	cfg       config.RateLimitConfig
-	idleRatio float64
+	mu          sync.RWMutex
+	byName      map[string]*PlatformLimiter
+	cfg         config.RateLimitConfig
+	idleRatio   float64
+	taskReserve bool // continue 模式为 true
 }
 
 var (
@@ -151,6 +154,7 @@ func (r *Registry) Get(platform string) *PlatformLimiter {
 		return lim
 	}
 	lim := newPlatformLimiter(platform, r.cfg)
+	lim.taskReserve = r.taskReserve
 	r.byName[platform] = lim
 	return lim
 }
@@ -227,6 +231,18 @@ func (r *Registry) SetIdleRatio(ratio float64) {
 	}
 }
 
+// SetInteractiveTaskReserve 仅 OnInteractive=continue 时为 true：非交互不可吃满 MaxConcurrent。
+func (r *Registry) SetInteractiveTaskReserve(enable bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.taskReserve = enable
+	for _, lim := range r.byName {
+		lim.mu.Lock()
+		lim.taskReserve = enable
+		lim.mu.Unlock()
+	}
+}
+
 func (r *Registry) IdleRatio() float64 {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -249,7 +265,7 @@ func interactiveReserveFor(maxTask int) int {
 }
 
 // AcquireTask 获取任务槽。boost：小文件插队池；interactive：交互下载（非预取）。
-// 非交互最多占到 MaxConcurrent-reserve，给 interactive 留槽（pause 模式仍靠 PrefetchPaused 让路）。
+// taskReserve（continue 模式）时非交互最多占 MaxConcurrent-reserve；pause 模式靠 PrefetchPaused 让路。
 func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost, interactive bool) error {
 	for {
 		p.mu.Lock()
@@ -276,7 +292,7 @@ func (p *PlatformLimiter) AcquireTask(ctx context.Context, boost, interactive bo
 				normal = 0
 			}
 			limit := maxTask
-			if !interactive {
+			if !interactive && p.taskReserve {
 				limit = maxTask - interactiveReserveFor(maxTask)
 				if limit < 1 {
 					limit = 1

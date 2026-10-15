@@ -45,8 +45,10 @@ type Options struct {
 	HasKnownSize bool
 	KnownSize    int64
 	RangeHeader  string // 客户端 Range，仅 ServePackage HIT 使用
-	// OnAcquired 在拿到任务槽（或缓存命中开始服务）时回调，用于调度器 preparing→running
+	// OnAcquired 在拿到任务槽并开始真实下载时回调（MarkRunning / 计 P0）
 	OnAcquired func()
+	// OnHit 缓存 HIT 开始服务时回调（MarkHit，不计 P0）
+	OnHit func()
 	// OnWaiting inflight 合并等待时回调（不计 P0）
 	OnWaiting func()
 	// OnProgress 下载进度（已完成字节, 总字节；总字节未知时为 0）
@@ -194,6 +196,14 @@ func notifyAcquired(opt Options) {
 	}
 }
 
+func notifyHit(opt Options) {
+	if opt.OnHit != nil {
+		opt.OnHit()
+		return
+	}
+	// 无 OnHit 时不回落到 OnAcquired，避免 HIT 误 pause
+}
+
 func notifyProgress(opt Options, done, total int64) {
 	if opt.OnProgress != nil {
 		opt.OnProgress(done, total)
@@ -202,21 +212,25 @@ func notifyProgress(opt Options, done, total int64) {
 
 // GetOrDownload 预取/后台下载：命中缓存或分片/串行拉取。与 ServePackage 共享 inflight 去重。
 func (e *Engine) GetOrDownload(ctx context.Context, opt Options) (*Result, error) {
+	return e.getOrDownload(ctx, opt, true)
+}
+
+func (e *Engine) getOrDownload(ctx context.Context, opt Options, allowFollowerRetry bool) (*Result, error) {
 	opt.resolveExpectedDigest()
-		if entry, ok := e.cache.Get(opt.CacheKey, opt.Platform); ok {
-			// 预取命中也必须占任务槽，避免海量缓存命中同时 MarkRunning 冲破并发上限
-			var pl *ratelimit.PlatformLimiter
-			if opt.Prefetch {
-				pl = e.limiters.Get(opt.Platform)
-				if err := e.acquireTaskSlot(ctx, pl, opt); err != nil {
-					return nil, err
-				}
-				defer pl.ReleaseTask(opt.Boost)
+	if entry, ok := e.cache.Get(opt.CacheKey, opt.Platform); ok {
+		// 预取命中也必须占任务槽，避免海量缓存命中同时 MarkRunning 冲破并发上限
+		var pl *ratelimit.PlatformLimiter
+		if opt.Prefetch {
+			pl = e.limiters.Get(opt.Platform)
+			if err := e.acquireTaskSlot(ctx, pl, opt); err != nil {
+				return nil, err
 			}
-			notifyProgress(opt, entry.Size, entry.Size)
-			notifyAcquired(opt)
-			return &Result{Entry: entry, ContentType: entry.ContentType, Size: entry.Size, FromCache: true, Strategy: "cache"}, nil
+			defer pl.ReleaseTask(opt.Boost)
 		}
+		notifyProgress(opt, entry.Size, entry.Size)
+		notifyAcquired(opt)
+		return &Result{Entry: entry, ContentType: entry.ContentType, Size: entry.Size, FromCache: true, Strategy: "cache"}, nil
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	wait := &inflightWait{done: make(chan struct{}), mode: inflightModeFetch, cancel: cancel}
 	actual, loaded := e.inflight.LoadOrStore(opt.CacheKey, wait)
@@ -236,6 +250,10 @@ func (e *Engine) GetOrDownload(ctx context.Context, opt Options) (*Result, error
 		}
 		if entry, ok := e.cache.Get(opt.CacheKey, opt.Platform); ok {
 			return &Result{Entry: entry, ContentType: entry.ContentType, Size: entry.Size, FromCache: true, Strategy: "cache"}, nil
+		}
+		// leader 被交互取消等导致无 entry：跟随者再占坑一次
+		if allowFollowerRetry {
+			return e.getOrDownload(ctx, opt, false)
 		}
 		return nil, fmt.Errorf("download finished but cache miss")
 	}
@@ -469,7 +487,7 @@ func (e *Engine) downloadSerial(ctx context.Context, pl *ratelimit.PlatformLimit
 			return res, nil
 		}
 		last = err
-		if !errors.Is(err, errPrefetchReconnect) && !isTransientNetErr(err) {
+		if !errors.Is(err, errPrefetchReconnect) && !errors.Is(err, errUpstreamStall) && !isTransientNetErr(err) {
 			_ = os.Remove(tmp)
 			return nil, err
 		}
@@ -488,7 +506,14 @@ func (e *Engine) downloadSerialOnce(ctx context.Context, pl *ratelimit.PlatformL
 	if err := pl.AcquireConn(ctx, !opt.Prefetch); err != nil {
 		return nil, err
 	}
-	defer pl.ReleaseConn()
+	connHeld := true
+	releaseConn := func() {
+		if connHeld {
+			pl.ReleaseConn()
+			connHeld = false
+		}
+	}
+	defer releaseConn()
 
 	var have int64
 	if st, err := os.Stat(tmp); err == nil {
@@ -568,31 +593,64 @@ func (e *Engine) downloadSerialOnce(ctx context.Context, pl *ratelimit.PlatformL
 	if e.idleRatio != nil {
 		idle = e.idleRatio()
 	}
+
+	reqCtx, reqCancel := context.WithCancel(ctx)
+	defer reqCancel()
+	var lastProgress atomic.Int64
+	lastProgress.Store(time.Now().UnixNano())
+	watchDone := make(chan struct{})
+	go func(body io.ReadCloser) {
+		defer close(watchDone)
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-reqCtx.Done():
+				return
+			case <-t.C:
+				last := time.Unix(0, lastProgress.Load())
+				if time.Since(last) >= streamStallTimeout {
+					_ = body.Close()
+					reqCancel()
+					return
+				}
+			}
+		}
+	}(resp.Body)
+
+	body := &stallAwareBody{ctx: reqCtx, body: resp.Body}
 	lr := &limitReader{
-		ctx:      ctx,
-		r:        resp.Body,
-		pl:       pl,
-		prefetch: opt.Prefetch,
-		idle:     idle,
-		traffic:  e.traffic,
-		allow:    e.prefetchAllow(opt),
-		lease:    lease,
+		ctx:       ctx,
+		r:         body,
+		pl:        pl,
+		prefetch:  opt.Prefetch,
+		idle:      idle,
+		traffic:   e.traffic,
+		allow:     e.prefetchAllow(opt),
+		lease:     lease,
+		onBlocked: releaseConn,
 	}
 
 	total := resp.ContentLength
 	if have > 0 && resp.StatusCode == http.StatusPartialContent {
-		// Content-Length 为剩余长度
 		if total > 0 {
 			total = have + total
 		}
 	}
 	if cr := resp.Header.Get("Content-Range"); have > 0 && total <= 0 {
-		// bytes start-end/total
-		if i := strings.LastIndexByte(cr, '/'); i >= 0 {
-			if n, err := strconv.ParseInt(cr[i+1:], 10, 64); err == nil && n > 0 {
-				total = n
-			}
+		if n := parseContentRangeTotal(cr); n > 0 {
+			total = n
 		}
+	}
+	wantSize := int64(-1)
+	if opt.HasKnownSize && opt.KnownSize > 0 {
+		wantSize = opt.KnownSize
+	}
+	if total > 0 {
+		if wantSize > 0 && total != wantSize {
+			return nil, fmt.Errorf("upstream size mismatch: known=%d get=%d", wantSize, total)
+		}
+		wantSize = total
 	}
 	if total > 0 {
 		notifyProgress(opt, have, total)
@@ -605,6 +663,7 @@ func (e *Engine) downloadSerialOnce(ctx context.Context, pl *ratelimit.PlatformL
 	cw := &progressWriter{
 		w: f,
 		onWrite: func(n int64) {
+			lastProgress.Store(time.Now().UnixNano())
 			doneMu.Lock()
 			done += n
 			cur, tot := done, total
@@ -617,8 +676,9 @@ func (e *Engine) downloadSerialOnce(ctx context.Context, pl *ratelimit.PlatformL
 		},
 	}
 	n, err := io.Copy(cw, lr)
+	reqCancel()
+	<-watchDone
 	if err != nil {
-		// 保留已写入部分供下次 Range 续传
 		cleanup = false
 		return nil, err
 	}
@@ -627,6 +687,10 @@ func (e *Engine) downloadSerialOnce(ctx context.Context, pl *ratelimit.PlatformL
 		return nil, err
 	}
 	final := have + n
+	if wantSize > 0 && final != wantSize {
+		cleanup = false
+		return nil, fmt.Errorf("incomplete download: got %d want %d", final, wantSize)
+	}
 	notifyProgress(opt, final, final)
 	opt.resolveExpectedDigest()
 	if err := verifyAndRemember(tmp, opt); err != nil {

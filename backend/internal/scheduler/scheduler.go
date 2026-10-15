@@ -67,6 +67,9 @@ type TaskInfo struct {
 // 交互空隙短于此时长不恢复预取，避免 pip 索引/包请求间隙把 PrefetchPaused 抖开又抖上。
 const prefetchResumeDelay = 3 * time.Second
 
+// 完成态任务保留时长，超时从队列剔除，避免无界增长。
+const finishedTaskTTL = 10 * time.Minute
+
 type Scheduler struct {
 	mu           sync.Mutex
 	tasks        map[string]*TaskInfo
@@ -75,6 +78,7 @@ type Scheduler struct {
 	cfgFn        func() config.SchedulerConfig
 	log          *zap.Logger
 	p0Active     atomic.Int64
+	p0ByPlatform map[string]int64 // 按平台交互下载计数；resume 仅清 p0==0 的平台
 	nextID       atomic.Uint64
 	resumeMu     sync.Mutex
 	resumeTimer  *time.Timer
@@ -82,10 +86,11 @@ type Scheduler struct {
 
 func New(lim *ratelimit.Registry, cfgFn func() config.SchedulerConfig, log *zap.Logger) *Scheduler {
 	return &Scheduler{
-		tasks:    map[string]*TaskInfo{},
-		limiters: lim,
-		cfgFn:    cfgFn,
-		log:      log,
+		tasks:        map[string]*TaskInfo{},
+		p0ByPlatform: map[string]int64{},
+		limiters:     lim,
+		cfgFn:        cfgFn,
+		log:          log,
 	}
 }
 
@@ -149,7 +154,7 @@ func (s *Scheduler) MarkPreparing(id string) {
 }
 
 // MarkRunning 将 queued/preparing/waiting 推进为 running（已占槽并开始传数据）。
-// 首次进入 running 且 wantP0 时计入 p0Active 并 pause 本平台预取。
+// 首次进入 running 且 wantP0 时在持锁内计入 p0Active 并 pause 本平台预取。
 func (s *Scheduler) MarkRunning(id string) {
 	s.mu.Lock()
 	t, ok := s.tasks[id]
@@ -174,16 +179,38 @@ func (s *Scheduler) MarkRunning(id string) {
 	platform := t.Platform
 	if t.wantP0 && !t.countsActive {
 		t.countsActive = true
+		s.incP0Locked(platform)
 		activateP0 = true
 	}
 	s.refreshTaskMetricsLocked()
 	s.mu.Unlock()
 
 	if activateP0 {
-		s.p0Active.Add(1)
-		metrics.SchedulerP0Active.Set(float64(s.p0Active.Load()))
 		s.pausePrefetchIfNeeded(platform)
 	}
+}
+
+// MarkHit 缓存 HIT 展示为 running，不计 p0Active、不 pause 预取。
+func (s *Scheduler) MarkHit(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tasks[id]
+	if !ok || t == nil {
+		return
+	}
+	if t.Status != "queued" && t.Status != "preparing" && t.Status != "waiting" {
+		return
+	}
+	now := time.Now()
+	t.Status = "running"
+	if t.StartedAt.IsZero() {
+		t.StartedAt = now
+		t.WaitMs = now.Sub(t.QueuedAt).Milliseconds()
+	} else if t.WaitMs <= 0 {
+		t.WaitMs = now.Sub(t.QueuedAt).Milliseconds()
+	}
+	t.UpdatedAt = now
+	s.refreshTaskMetricsLocked()
 }
 
 // MarkWaiting 将 preparing/queued 标为 waiting（inflight 合并等待），不计 p0Active。
@@ -221,7 +248,7 @@ func (s *Scheduler) UpdateProgress(id string, done, total int64) {
 	if !ok || t == nil {
 		return
 	}
-	if t.Status != "queued" && t.Status != "preparing" && t.Status != "running" {
+	if t.Status != "queued" && t.Status != "preparing" && t.Status != "running" && t.Status != "waiting" {
 		return
 	}
 	now := time.Now()
@@ -286,17 +313,41 @@ func dockerBlobDisplay(p string) (label, detail string) {
 	return repo + "@" + short, dig
 }
 
+func (s *Scheduler) incP0Locked(platform string) {
+	if s.p0ByPlatform == nil {
+		s.p0ByPlatform = map[string]int64{}
+	}
+	s.p0ByPlatform[platform]++
+	n := s.p0Active.Add(1)
+	metrics.SchedulerP0Active.Set(float64(n))
+}
+
 func (s *Scheduler) releaseActiveLocked(t *TaskInfo) {
 	if t == nil || !t.countsActive {
 		return
 	}
 	t.countsActive = false
+	plat := t.Platform
+	if s.p0ByPlatform != nil {
+		if c := s.p0ByPlatform[plat]; c > 1 {
+			s.p0ByPlatform[plat] = c - 1
+		} else {
+			delete(s.p0ByPlatform, plat)
+		}
+	}
 	n := s.p0Active.Add(-1)
 	if n < 0 {
 		s.p0Active.Store(0)
 		n = 0
 	}
 	metrics.SchedulerP0Active.Set(float64(n))
+}
+
+func (s *Scheduler) platformP0Locked(platform string) int64 {
+	if s.p0ByPlatform == nil {
+		return 0
+	}
+	return s.p0ByPlatform[platform]
 }
 
 func (s *Scheduler) End(id string, err error) {
@@ -306,6 +357,7 @@ func (s *Scheduler) End(id string, err error) {
 		// 已取消的任务不被后续 End 覆盖成 done/error
 		if t.Status == "cancelled" {
 			s.releaseActiveLocked(t)
+			s.pruneFinishedLocked(time.Now())
 			s.refreshTaskMetricsLocked()
 			s.mu.Unlock()
 			s.resumePrefetchIfIdle()
@@ -326,9 +378,29 @@ func (s *Scheduler) End(id string, err error) {
 		}
 		s.releaseActiveLocked(t)
 	}
+	s.pruneFinishedLocked(time.Now())
 	s.refreshTaskMetricsLocked()
 	s.mu.Unlock()
 	s.resumePrefetchIfIdle()
+}
+
+// pruneFinishedLocked 剔除过期完成态任务（须持 s.mu）。
+func (s *Scheduler) pruneFinishedLocked(now time.Time) {
+	kept := s.order[:0]
+	for _, id := range s.order {
+		t, ok := s.tasks[id]
+		if !ok || t == nil {
+			continue
+		}
+		if (t.Status == "done" || t.Status == "error" || t.Status == "cancelled") &&
+			!t.UpdatedAt.IsZero() && now.Sub(t.UpdatedAt) >= finishedTaskTTL {
+			s.releaseActiveLocked(t)
+			delete(s.tasks, id)
+			continue
+		}
+		kept = append(kept, id)
+	}
+	s.order = kept
 }
 
 func isCancelErr(err error) bool {
@@ -446,45 +518,59 @@ func (s *Scheduler) resumeCountForPlatformLocked(platform string) int64 {
 	return n
 }
 
+// ResumePrefetchIfIdle 公开入口：热开 ResumeOnIdle 时武装定时器，尊重各平台 p0。
+func (s *Scheduler) ResumePrefetchIfIdle() {
+	s.resumePrefetchIfIdle()
+}
+
 func (s *Scheduler) resumePrefetchIfIdle() {
 	cfg := s.cfgFn()
 	if !cfg.Prefetch.ResumeOnIdle {
 		return
 	}
-	if s.p0Active.Load() > 0 {
-		return
-	}
+	// 任一平台可能已 idle：即使全局仍有其他平台 P0，也武装定时器做按平台 resume
 	s.resumeMu.Lock()
 	defer s.resumeMu.Unlock()
 	if s.resumeTimer != nil {
 		s.resumeTimer.Stop()
 	}
 	s.resumeTimer = time.AfterFunc(prefetchResumeDelay, func() {
-		if s.p0Active.Load() > 0 {
-			return
-		}
-		s.applyPrefetchResume()
+		s.applyPrefetchResumeIdlePlatforms()
 	})
 }
 
-func (s *Scheduler) applyPrefetchResume() {
+// applyPrefetchResumeIdlePlatforms 仅解除 p0ByPlatform[p]==0 的平台 PrefetchPaused。
+func (s *Scheduler) applyPrefetchResumeIdlePlatforms() {
+	cfg := s.cfgFn()
+	if !cfg.Prefetch.ResumeOnIdle {
+		return
+	}
+	s.mu.Lock()
+	idle := make([]string, 0)
 	for _, snap := range s.limiters.Snapshots() {
 		name, _ := snap["platform"].(string)
+		if name == "" {
+			continue
+		}
+		if s.platformP0Locked(name) == 0 {
+			idle = append(idle, name)
+		}
+	}
+	s.mu.Unlock()
+	changedAny := false
+	for _, name := range idle {
 		if pl := s.limiters.Get(name); pl != nil {
 			if pl.SetPrefetchPaused(false) {
+				changedAny = true
 				if s.log != nil {
 					s.log.Info("prefetch resumed after interactive idle", zap.String("platform", name))
 				}
 			}
 		}
 	}
-	s.refreshPrefetchPausedMetric()
-}
-
-// ApplyPrefetchResume 立即解除各平台 PrefetchPaused（配置 ResumeOnIdle 热开时调用）。
-func (s *Scheduler) ApplyPrefetchResume() {
-	s.cancelResumeTimer()
-	s.applyPrefetchResume()
+	if changedAny {
+		s.refreshPrefetchPausedMetric()
+	}
 }
 
 func (s *Scheduler) refreshPrefetchPausedMetric() {
@@ -614,6 +700,7 @@ func (s *Scheduler) ClearFinished() int {
 		kept = append(kept, id)
 	}
 	s.order = kept
+	s.pruneFinishedLocked(time.Now())
 	s.refreshTaskMetricsLocked()
 	return n
 }

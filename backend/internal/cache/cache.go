@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -460,6 +461,72 @@ func (m *Manager) Get(key string, platformHint ...string) (*Entry, bool) {
 	return &entry, true
 }
 
+// Open 持锁校验后打开文件，降低 Get 与 Put/Delete 之间的 TOCTOU。
+// 调用方必须 Close 返回的 *os.File。
+func (m *Manager) Open(key string, platformHint ...string) (*Entry, *os.File, bool) {
+	hint := ""
+	if len(platformHint) > 0 {
+		hint = platformHint[0]
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var entry Entry
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketMeta)
+		v := b.Get([]byte(key))
+		if v == nil {
+			return fmt.Errorf("miss")
+		}
+		return json.Unmarshal(v, &entry)
+	})
+	if err != nil {
+		m.hit.noteMiss(HitPlatform(hint, key, nil))
+		m.dirty = true
+		return nil, nil, false
+	}
+	if strings.TrimSpace(entry.SourceURL) == "" || strings.TrimSpace(entry.Kind) == "" {
+		_ = m.deleteLocked(key)
+		m.hit.noteMiss(HitPlatform(hint, key, &entry))
+		m.dirty = true
+		return nil, nil, false
+	}
+	if entry.Kind != "package" && entry.TTLSeconds > 0 && time.Since(entry.CreatedAt) > time.Duration(entry.TTLSeconds)*time.Second {
+		m.hit.noteMiss(HitPlatform(hint, key, &entry))
+		m.dirty = true
+		return nil, nil, false
+	}
+	info, err := os.Stat(entry.FilePath)
+	if err != nil {
+		_ = m.deleteLocked(key)
+		m.hit.noteMiss(HitPlatform(hint, key, &entry))
+		m.dirty = true
+		return nil, nil, false
+	}
+	if entry.Kind == "package" && (entry.Size <= 0 || info.Size() != entry.Size) {
+		_ = m.deleteLocked(key)
+		m.hit.noteMiss(HitPlatform(hint, key, &entry))
+		m.dirty = true
+		return nil, nil, false
+	}
+	f, err := os.Open(entry.FilePath)
+	if err != nil {
+		_ = m.deleteLocked(key)
+		m.hit.noteMiss(HitPlatform(hint, key, &entry))
+		m.dirty = true
+		return nil, nil, false
+	}
+	now := time.Now()
+	prevAccess := entry.LastAccess
+	entry.LastAccess = now
+	if prevAccess.IsZero() || now.Sub(prevAccess) >= 30*time.Second {
+		_ = m.putMetaLocked(&entry)
+	}
+	m.hit.noteHit(HitPlatform(hint, key, &entry))
+	m.dirty = true
+	cp := entry
+	return &cp, f, true
+}
+
 // GetStale 返回过期但物理文件仍存在的条目，不检查 TTL、不删除、不更新 LastAccess。
 // 用于 revalidation 场景：拿到旧 entry 的 UpstreamETag 向上游发条件请求。
 func (m *Manager) GetStale(key string) (*Entry, bool) {
@@ -523,20 +590,19 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 		digestHex = sum
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	plat := ClassifyPlatform(Entry{Key: key, SourceURL: meta.SourceURL, Kind: meta.Kind})
 	dst := m.filePath(key, plat)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return nil, err
 	}
-	_ = os.Remove(dst)
-	if err := moveFile(srcPath, dst); err != nil {
+	// 锁外完成大文件 move：先落到旁路临时名再 rename 覆盖，缩短持锁时间
+	staging := dst + ".put-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	if err := moveFile(srcPath, staging); err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(dst)
+	info, err := os.Stat(staging)
 	if err != nil {
+		_ = os.Remove(staging)
 		return nil, err
 	}
 	kind := strings.TrimSpace(meta.Kind)
@@ -544,8 +610,24 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 		kind = "package"
 	}
 	if kind == "package" && info.Size() <= 0 {
-		_ = os.Remove(dst)
+		_ = os.Remove(staging)
 		return nil, fmt.Errorf("refuse to cache zero-size package")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_ = os.Remove(dst)
+	if err := os.Rename(staging, dst); err != nil {
+		// rename 失败则拷贝兜底
+		if copyErr := moveFile(staging, dst); copyErr != nil {
+			_ = os.Remove(staging)
+			return nil, copyErr
+		}
+	}
+	info, err = os.Stat(dst)
+	if err != nil {
+		return nil, err
 	}
 	etag := ""
 	if digestHex != "" {

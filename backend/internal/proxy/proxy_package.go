@@ -34,7 +34,7 @@ func looksLikeNonArtifactBlobType(ct string) bool {
 	return false
 }
 
-func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router.Match, plat platform.Platform, cfg config.Config, pypi config.PlatformConfig, prefetch, boost bool, onAcquired, onWaiting func(), onProgress func(done, total int64), taskID string) (string, string, error) {
+func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router.Match, plat platform.Platform, cfg config.Config, pypi config.PlatformConfig, prefetch, boost bool, onAcquired, onHit, onWaiting func(), onProgress func(done, total int64), taskID string) (string, string, error) {
 	origURL := m.TargetURL
 	headers := platform.FilterRequestHeaders(r.Header)
 	cacheKey := cache.KeyFromURL(origURL)
@@ -68,7 +68,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 
 	if err := injectAuth(); err != nil {
 		if entry, ok := s.cache.Get(cacheKey, m.Platform); ok {
-			return s.servePackageHit(w, r, entry, boost, onAcquired, onProgress)
+			return s.servePackageHit(w, r, entry, boost, onHit, onProgress)
 		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return "miss", "proxy", err
@@ -78,7 +78,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		if entry.Size <= 0 {
 			_ = s.cache.Delete(cacheKey)
 		} else {
-			return s.servePackageHit(w, r, entry, boost, onAcquired, onProgress)
+			return s.servePackageHit(w, r, entry, boost, onHit, onProgress)
 		}
 	}
 
@@ -222,6 +222,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		ExpectedSHA256: expectedSHA,
 		RangeHeader:    r.Header.Get("Range"),
 		OnAcquired:     onAcquired,
+		OnHit:          onHit,
 		OnWaiting:      onWaiting,
 		OnProgress:     onProgress,
 	}
@@ -229,6 +230,16 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	if !prefetch {
 		tw := &writeTrack{ResponseWriter: w}
 		label, err := s.dl.ServePackage(r.Context(), tw, opt)
+		// 写头前 401/403：换票后重试一次 ServePackage
+		if err != nil && !tw.wrote && isAuthFail(err) {
+			invalidateAuth()
+			if injErr := injectAuth(); injErr == nil {
+				opt.Headers = headers
+				tw2 := &writeTrack{ResponseWriter: w}
+				label, err = s.dl.ServePackage(r.Context(), tw2, opt)
+				tw = tw2
+			}
+		}
 		strat := "stream"
 		if label == "hit" {
 			strat = "cache"
@@ -280,15 +291,15 @@ func (w *writeTrack) Flush() {
 	}
 }
 
-func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *cache.Entry, boost bool, onAcquired func(), onProgress func(done, total int64)) (string, string, error) {
+func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *cache.Entry, boost bool, onHit func(), onProgress func(done, total int64)) (string, string, error) {
 	if entry != nil && entry.Size <= 0 {
 		_ = s.cache.Delete(entry.Key)
 		err := fmt.Errorf("cached entry has zero size")
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return "miss", "cache", err
 	}
-	if onAcquired != nil {
-		onAcquired()
+	if onHit != nil {
+		onHit()
 	}
 	if onProgress != nil {
 		onProgress(entry.Size, entry.Size)

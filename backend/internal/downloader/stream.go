@@ -2,8 +2,11 @@ package downloader
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -61,9 +64,10 @@ func parseLinkedSize(v string) int64 {
 // ServePackage 交互下载：命中缓存直接回文件；未命中则流式/并行流式并写入缓存。
 func (e *Engine) ServePackage(ctx context.Context, w http.ResponseWriter, opt Options) (cacheLabel string, err error) {
 	opt.resolveExpectedDigest()
-		if entry, ok := e.cache.Get(opt.CacheKey, opt.Platform); ok {
-			notifyAcquired(opt)
-			return serveCached(w, entry, opt.Boost, opt.RangeHeader, "HIT")
+		if entry, f, ok := e.cache.Open(opt.CacheKey, opt.Platform); ok {
+			notifyHit(opt)
+			defer f.Close()
+			return serveCachedFile(w, entry, f, opt.Boost, opt.RangeHeader, "HIT")
 		}
 
 		for try := 0; try < 3; try++ {
@@ -96,13 +100,14 @@ func (e *Engine) ServePackage(ctx context.Context, w http.ResponseWriter, opt Op
 				return "na", true, ctx.Err()
 			case <-sw.done:
 			}
-			if entry, ok := e.cache.Get(opt.CacheKey, opt.Platform); ok {
-				notifyAcquired(opt)
-				l, e2 := serveCached(w, entry, opt.Boost, opt.RangeHeader, "HIT")
+			if entry, f, ok := e.cache.Open(opt.CacheKey, opt.Platform); ok {
+				notifyHit(opt)
+				defer f.Close()
+				l, e2 := serveCachedFile(w, entry, f, opt.Boost, opt.RangeHeader, "HIT")
 				return l, true, e2
 			}
 			if sw.err == nil && sw.entry != nil {
-				notifyAcquired(opt)
+				notifyHit(opt)
 				l, e2 := serveCached(w, sw.entry, opt.Boost, opt.RangeHeader, "HIT")
 				return l, true, e2
 			}
@@ -134,6 +139,15 @@ func (e *Engine) ServePackage(ctx context.Context, w http.ResponseWriter, opt Op
 }
 
 func serveCached(w http.ResponseWriter, entry *cache.Entry, boost bool, rangeHeader, cacheLabel string) (string, error) {
+	f, err := os.Open(entry.FilePath)
+	if err != nil {
+		return "miss", err
+	}
+	defer f.Close()
+	return serveCachedFile(w, entry, f, boost, rangeHeader, cacheLabel)
+}
+
+func serveCachedFile(w http.ResponseWriter, entry *cache.Entry, f *os.File, boost bool, rangeHeader, cacheLabel string) (string, error) {
 	if cacheLabel == "" {
 		cacheLabel = "HIT"
 	}
@@ -141,11 +155,6 @@ func serveCached(w http.ResponseWriter, entry *cache.Entry, boost bool, rangeHea
 	if accessLabel == "" {
 		accessLabel = "hit"
 	}
-	f, err := os.Open(entry.FilePath)
-	if err != nil {
-		return "miss", err
-	}
-	defer f.Close()
 	ct := entry.ContentType
 	if ct == "" {
 		ct = "application/octet-stream"
@@ -318,16 +327,23 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 		ct = "application/octet-stream"
 	}
 
-	headerWritten := false
-	var written int64
+		headerWritten := false
+		var written int64
 
-	idle := 0.3
-	if e.idleRatio != nil {
-		idle = e.idleRatio()
-	}
+		idle := 0.3
+		if e.idleRatio != nil {
+			idle = e.idleRatio()
+		}
 
-	completed := false
-	for attempt := 0; attempt < streamMaxResume; attempt++ {
+		// docker 或带期望摘要：边下边 hash，结束不匹配则掐连接且不入库
+		opt.resolveExpectedDigest()
+		var streamHash hash.Hash
+		if opt.Platform == "docker" || strings.TrimSpace(opt.ExpectedSHA256) != "" {
+			streamHash = sha256.New()
+		}
+
+		completed := false
+		for attempt := 0; attempt < streamMaxResume; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, ct, written, err
 		}
@@ -455,7 +471,7 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 		}(resp.Body)
 
 		body := &stallAwareBody{ctx: reqCtx, body: resp.Body}
-		n, copyErr := e.copyStreamToClientAndFile(ctx, w, f, body, pl, opt.Prefetch, idle, &lastProgress)
+		n, copyErr := e.copyStreamToClientAndFile(ctx, w, f, body, pl, opt.Prefetch, idle, &lastProgress, streamHash)
 		_ = resp.Body.Close()
 		reqCancel()
 		<-watchDone
@@ -503,6 +519,23 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 	cleanupTmp = false // 交由 Put 接管路径
 	opt.resolveExpectedDigest()
 	digest := opt.ExpectedSHA256
+	if streamHash != nil && strings.TrimSpace(opt.ExpectedSHA256) != "" {
+		sum := hex.EncodeToString(streamHash.Sum(nil))
+		exp := strings.ToLower(strings.TrimSpace(opt.ExpectedSHA256))
+		if len(exp) == 64 && !strings.EqualFold(sum, exp) {
+			err := fmt.Errorf("digest mismatch: want %s got %s", exp, sum)
+			if headerWritten {
+				abortHTTPBody(w)
+			}
+			_ = os.Remove(tmp)
+			cleanupTmp = true
+			return nil, ct, written, err
+		}
+		if len(exp) == 64 {
+			digest = strings.ToLower(sum)
+			RememberDigest(opt.metaSource(), digest)
+		}
+	}
 	if err := verifyAndRemember(tmp, opt); err != nil {
 		// 已向客户端写出正文：非 docker 可降级无摘要入库；docker blob 禁止无 digest HIT
 		if headerWritten && opt.Platform != "docker" {
@@ -514,6 +547,9 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 			}
 			digest = ""
 		} else {
+			if headerWritten {
+				abortHTTPBody(w)
+			}
 			_ = os.Remove(tmp)
 			cleanupTmp = true
 			return nil, ct, written, err
@@ -561,6 +597,7 @@ func (e *Engine) copyStreamToClientAndFile(
 	prefetch bool,
 	idle float64,
 	lastProgress *atomic.Int64,
+	hasher hash.Hash,
 ) (int64, error) {
 	buf := make([]byte, 32*1024)
 	var written int64
@@ -575,6 +612,9 @@ func (e *Engine) copyStreamToClientAndFile(
 		if n > 0 {
 			if lastProgress != nil {
 				lastProgress.Store(time.Now().UnixNano())
+			}
+			if hasher != nil {
+				_, _ = hasher.Write(buf[:n])
 			}
 			if _, err := w.Write(buf[:n]); err != nil {
 				return written, err
@@ -655,24 +695,32 @@ func cloneHeader(h http.Header) http.Header {
 }
 
 type limitReader struct {
-	ctx      context.Context
-	r        io.Reader
-	pl       *ratelimit.PlatformLimiter
-	prefetch bool
-	idle     float64
-	traffic  *traffic.Recorder
-	allow    func() bool
-	lease    *prefetchLease
+	ctx       context.Context
+	r         io.Reader
+	pl        *ratelimit.PlatformLimiter
+	prefetch  bool
+	idle      float64
+	traffic   *traffic.Recorder
+	allow     func() bool
+	lease     *prefetchLease
+	onBlocked func() // pause 首次进入时释 conn 等
 }
 
 func (l *limitReader) Read(p []byte) (int, error) {
 	if l.prefetch && l.pl != nil {
 		held := false
+		blockedOnce := false
 		for {
 			if !l.pl.PrefetchPaused() && (l.allow == nil || l.allow()) {
 				break
 			}
 			held = true
+			if !blockedOnce {
+				blockedOnce = true
+				if l.onBlocked != nil {
+					l.onBlocked()
+				}
+			}
 			if l.lease != nil {
 				l.lease.release()
 			}
