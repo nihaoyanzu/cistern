@@ -294,6 +294,16 @@ function stopProgressPoll() {
   }
 }
 
+function isActiveUpgradePhase(phase?: string): boolean {
+  return (
+    phase === 'preparing' ||
+    phase === 'downloading' ||
+    phase === 'verifying' ||
+    phase === 'replacing' ||
+    phase === 'restarting'
+  )
+}
+
 async function pollUpdateProgressOnce(): Promise<string> {
   try {
     const st = await api.getUpdate(false)
@@ -323,34 +333,33 @@ async function waitForServiceBack() {
   return false
 }
 
-async function confirmUpgrade() {
-  applying.value = true
-  cancellingUpdate.value = false
-  showProgressModal.value = true
-  liveProgress.value = {
-    phase: 'preparing',
-    bytes_done: 0,
-    bytes_total: 0,
-    percent: 0,
-    message: t('common.updateApplying'),
-    can_cancel: true,
-  }
-  try {
-    await api.applyUpdate()
-    stopProgressPoll()
-    progressTimer = window.setInterval(() => {
-      void pollUpdateProgressOnce()
-    }, 400)
+function onBeforeUnload(e: BeforeUnloadEvent) {
+  if (!applying.value) return
+  e.preventDefault()
+  e.returnValue = ''
+}
 
-    let phase = await pollUpdateProgressOnce()
+/** 轮询升级进度直到结束（确认升级 / 刷新后恢复共用） */
+async function watchUpgradeUntilDone() {
+  applying.value = true
+  showProgressModal.value = true
+  stopProgressPoll()
+  progressTimer = window.setInterval(() => {
+    void pollUpdateProgressOnce()
+  }, 400)
+  try {
     while (applying.value) {
-      phase = await pollUpdateProgressOnce()
+      const phase = await pollUpdateProgressOnce()
       if (phase === 'failed') {
         toast.err(liveProgress.value?.error || t('common.updateFailed'))
         break
       }
       if (phase === 'cancelled') {
         toast.ok(t('common.updateCancelled'))
+        break
+      }
+      if (phase === 'idle') {
+        // 后端已结束且未进入失败/取消（少见）；收起进度
         break
       }
       if (phase === 'restarting' || phase === 'unreachable') {
@@ -369,13 +378,49 @@ async function confirmUpgrade() {
       }
       await new Promise((r) => setTimeout(r, 400))
     }
-  } catch (e: any) {
-    toast.err(e?.message || t('common.updateFailed'))
   } finally {
     stopProgressPoll()
     applying.value = false
     cancellingUpdate.value = false
     showProgressModal.value = false
+  }
+}
+
+async function confirmUpgrade() {
+  cancellingUpdate.value = false
+  applying.value = true
+  showProgressModal.value = true
+  liveProgress.value = {
+    phase: 'preparing',
+    bytes_done: 0,
+    bytes_total: 0,
+    percent: 0,
+    message: t('common.updateApplying'),
+    can_cancel: true,
+  }
+  try {
+    await api.applyUpdate()
+  } catch (e: any) {
+    toast.err(e?.message || t('common.updateFailed'))
+    applying.value = false
+    showProgressModal.value = false
+    return
+  }
+  await watchUpgradeUntilDone()
+}
+
+/** 页面刷新后：若服务端仍在升级，恢复进度窗继续跟踪 */
+async function resumeUpgradeWatchIfNeeded() {
+  try {
+    const st = await api.getUpdate(false)
+    updateStatus.value = st
+    const prog = st.progress || idleProgress()
+    liveProgress.value = prog
+    if (!isActiveUpgradePhase(prog.phase)) return
+    cancellingUpdate.value = false
+    await watchUpgradeUntilDone()
+  } catch {
+    /* 忽略，走常规 checkUpdate */
   }
 }
 
@@ -390,25 +435,37 @@ async function cancelUpgrade() {
   }
 }
 
-/** 升级进行中禁止关掉进度窗；可取消阶段点关闭=请求取消 */
+/** 升级中禁止因 visible=false 关掉进度窗（遮罩已 persistent；此处兜底） */
 function onProgressVisible(v: boolean) {
   if (v) {
     showProgressModal.value = true
     return
   }
   if (applying.value) {
-    if (canCancelUpdate.value) void cancelUpgrade()
     showProgressModal.value = true
     return
   }
   showProgressModal.value = false
 }
 
+/** 仅底部「取消升级」按钮：真正请求取消 */
+function onProgressCancel() {
+  if (canCancelUpdate.value) {
+    void cancelUpgrade()
+    return
+  }
+  if (!applying.value) showProgressModal.value = false
+}
+
 onMounted(() => {
   session.refresh()
   modulesStore.refresh()
   statsStore.startPolling(3000)
-  void checkUpdate(true)
+  window.addEventListener('beforeunload', onBeforeUnload)
+  void (async () => {
+    await resumeUpgradeWatchIfNeeded()
+    if (!applying.value) void checkUpdate(true)
+  })()
   updateTimer = window.setInterval(() => void checkUpdate(false), 6 * 60 * 60 * 1000)
   document.addEventListener('click', onDocClick)
 })
@@ -417,6 +474,7 @@ onUnmounted(() => {
   statsStore.stopPolling()
   if (updateTimer) clearInterval(updateTimer)
   stopProgressPoll()
+  window.removeEventListener('beforeunload', onBeforeUnload)
   document.removeEventListener('click', onDocClick)
 })
 
@@ -628,6 +686,7 @@ function goAccount() {
     :visible="showProgressModal"
     :title="t('common.updateProgressTitle')"
     :hide-confirm="true"
+    :persistent="applying"
     :cancel-text="
       canCancelUpdate
         ? cancellingUpdate
@@ -638,6 +697,7 @@ function goAccount() {
           : t('common.close')
     "
     @update:visible="onProgressVisible"
+    @cancel="onProgressCancel"
   >
     <div class="space-y-3">
       <p class="text-sm text-muted">{{ progressLabel }}</p>

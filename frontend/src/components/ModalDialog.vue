@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
-defineProps<{
+const props = defineProps<{
   visible: boolean
   title?: string
   description?: string
@@ -13,6 +13,8 @@ defineProps<{
   /** 仅关闭按钮（结果展示等） */
   hideConfirm?: boolean
   wide?: boolean
+  /** 点遮罩 / Esc 不关闭（升级进度等） */
+  persistent?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +22,11 @@ const emit = defineEmits<{
   cancel: []
   'update:visible': [value: boolean]
 }>()
+
+function onOverlayOrEscape() {
+  if (props.persistent) return
+  onCancel()
+}
 
 function onCancel() {
   emit('update:visible', false)
@@ -38,9 +45,9 @@ function onConfirm() {
       <div
         v-if="visible"
         class="fixed inset-0 z-[100] flex items-center justify-center p-4"
-        @keydown.escape="onCancel"
+        @keydown.escape="onOverlayOrEscape"
       >
-        <div class="absolute inset-0 bg-black/45 backdrop-blur-[2px]" @click="onCancel" />
+        <div class="absolute inset-0 bg-black/45 backdrop-blur-[2px]" @click="onOverlayOrEscape" />
 
         <div
           class="ui-panel relative w-full p-5"
