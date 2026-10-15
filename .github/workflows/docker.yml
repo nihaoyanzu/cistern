@@ -1,8 +1,18 @@
+# MirrorHub GHCR + Release 二进制
+#
+# 发版约定（避免 main 与 v* tag 各跑一遍多架构构建）：
+#   1. 发版提交 message 必须以「release:」开头（可空提交）
+#        git commit --allow-empty -m "release: v3.4"
+#   2. 打 annotated tag 后推送 branch 与 tag
+#        git tag -a v3.4 -m "MirrorHub v3.4"
+#        git push origin main && git push origin v3.4
+#   3. 以 release: 开头的 main/master 推送会跳过 build job；仅 tag 推送构建
+#      多架构镜像（注入正式 VERSION）并上传 release-binaries。
+# 日常非发版 push：仍构建并推送 sha 标签，VERSION=dev。
 name: docker
 
 on:
   push:
-    # 日常 main 推送仍构建 sha 标签；以 release: 开头的提交只走 tag 构建，避免与 v* 双跑
     branches: [main, master]
     tags: ["v*"]
   pull_request:
@@ -23,12 +33,11 @@ concurrency:
 
 jobs:
   build:
-    # release 提交：跳过 branch 推送，只等 tag 构建（否则会 main + vX.Y 各跑一遍）
+    # 跳过「release:」开头的 branch push，只保留 tag / PR / workflow_dispatch
     if: >
       github.event_name != 'push' ||
       github.ref_type == 'tag' ||
-      github.event_name == 'workflow_dispatch' ||
-      !(startsWith(github.event.head_commit.message || '', 'release:'))
+      startsWith(github.event.head_commit.message || '', 'release:') == false
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -191,6 +191,8 @@ const resultText = ref('')
 const liveProgress = ref<UpdateProgress | null>(null)
 let updateTimer: number | undefined
 let progressTimer: number | undefined
+/** 丢弃过期的检测响应，避免并发 check 乱序覆盖 */
+let updateCheckGen = 0
 
 const idleProgress = (): UpdateProgress => ({
   phase: 'idle',
@@ -228,13 +230,17 @@ const canCancelUpdate = computed(
 )
 
 async function checkUpdate(force = false) {
+  const gen = ++updateCheckGen
   updateLoading.value = true
   try {
-    updateStatus.value = await api.getUpdate(force)
-    if (updateStatus.value?.progress) {
-      liveProgress.value = updateStatus.value.progress
+    const st = await api.getUpdate(force)
+    if (gen !== updateCheckGen) return
+    updateStatus.value = st
+    if (st?.progress) {
+      liveProgress.value = st.progress
     }
   } catch (e: any) {
+    if (gen !== updateCheckGen) return
     updateStatus.value = {
       current: updateStatus.value?.current || 'dev',
       update_available: false,
@@ -243,34 +249,20 @@ async function checkUpdate(force = false) {
       progress: updateStatus.value?.progress || idleProgress(),
     }
   } finally {
-    updateLoading.value = false
+    if (gen === updateCheckGen) updateLoading.value = false
   }
 }
 
 function onVersionClick() {
-  if (updateLoading.value || applying.value) return
-  const st = updateStatus.value
-  if (st?.update_available) {
+  if (applying.value) return
+  // 已确认有更新：直接确认升级，避免重复请求
+  if (updateStatus.value?.update_available && !updateLoading.value) {
     showConfirmModal.value = true
     return
   }
-  if (!st) {
-    // 尚无结果时先检测，有结论再弹窗（不展示「正在检测」）
-    void checkUpdate(true).then(() => {
-      const next = updateStatus.value
-      if (next?.update_available) {
-        showConfirmModal.value = true
-        return
-      }
-      resultText.value = formatUpdateResult(next)
-      showResultModal.value = true
-    })
-    return
-  }
-  resultText.value = formatUpdateResult(st)
-  showResultModal.value = true
+  // 一律等本次强制检测完成再弹窗，禁止先弹「已是最新」再改成「有新版本」
   void checkUpdate(true).then(() => {
-    if (!showResultModal.value) return
+    if (applying.value) return
     const next = updateStatus.value
     if (next?.update_available) {
       showResultModal.value = false
@@ -278,6 +270,8 @@ function onVersionClick() {
       return
     }
     resultText.value = formatUpdateResult(next)
+    showConfirmModal.value = false
+    showResultModal.value = true
   })
 }
 
