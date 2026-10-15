@@ -50,13 +50,13 @@ func MatchDocker(path string, r Routes) *router.Match {
 	}
 
 	if dockerhandler.IsBlobPath(path) {
+		// 必须先探测真实 size：containerd 用 descriptor/HEAD Content-Length 校验，禁止 SkipUpstreamHead
 		return &router.Match{
-			Platform:         "docker",
-			Strategy:         router.StrategyParallel,
-			UpstreamBase:     fileUp,
-			TargetURL:        fileUp + path,
-			ReadOnly:         true,
-			SkipUpstreamHead: true,
+			Platform:     "docker",
+			Strategy:     router.StrategyParallel,
+			UpstreamBase: fileUp,
+			TargetURL:    fileUp + path,
+			ReadOnly:     true,
 		}
 	}
 	if dockerhandler.IsManifestPath(path) {

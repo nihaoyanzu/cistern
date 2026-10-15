@@ -65,7 +65,7 @@ const snippets = computed(() => {
 <template>
   <section class="ui-panel overflow-hidden">
     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line p-4 sm:p-5">
-      <p class="text-xs text-muted">{{ t('guide.npmHint') }}</p>
+      <p class="text-xs text-muted whitespace-pre-wrap">{{ t('guide.npmHint') }}</p>
       <div class="flex gap-1 rounded-xl border border-line bg-bg/60 p-1">
         <button
           type="button"

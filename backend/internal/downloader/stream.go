@@ -33,6 +33,18 @@ func isHTMLContentType(ct string) bool {
 	return strings.Contains(strings.ToLower(ct), "text/html")
 }
 
+// looksLikeDockerNonBlobJSON 粗判 registry 错误页或 manifest（不应作为 layer blob）。
+func looksLikeDockerNonBlobJSON(ct string) bool {
+	low := strings.ToLower(strings.TrimSpace(ct))
+	if low == "" || !strings.Contains(low, "json") {
+		return false
+	}
+	return strings.Contains(low, "manifest") ||
+		strings.Contains(low, "vnd.docker.distribution.manifest") ||
+		strings.Contains(low, "vnd.oci.image") ||
+		strings.Contains(low, "error")
+}
+
 // parseLinkedSize 解析 HuggingFace X-Linked-Size 头；无效返回 -1。
 func parseLinkedSize(v string) int64 {
 	v = strings.TrimSpace(v)
@@ -345,12 +357,22 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 			_ = resp.Body.Close()
 			return nil, ct, written, fmt.Errorf("upstream returned HTML, not a package file")
 		}
+		// Docker blob 不应是 JSON manifest/错误页
+		if opt.Platform == "docker" && written == 0 && looksLikeDockerNonBlobJSON(ct) {
+			_ = resp.Body.Close()
+			return nil, ct, written, fmt.Errorf("upstream returned JSON/manifest for docker blob (not a layer)")
+		}
 		if size < 0 && written == 0 {
-			if resp.ContentLength >= 0 {
+			if resp.ContentLength > 0 {
 				size = resp.ContentLength
-			} else if linked := parseLinkedSize(resp.Header.Get("X-Linked-Size")); linked >= 0 {
+			} else if linked := parseLinkedSize(resp.Header.Get("X-Linked-Size")); linked > 0 {
 				size = linked
 			}
+		}
+		// 禁止向客户端声明 CL=0（containerd size of zero）
+		if !headerWritten && size == 0 {
+			_ = resp.Body.Close()
+			return nil, ct, written, fmt.Errorf("upstream content size of zero")
 		}
 		if written > 0 && resp.StatusCode == http.StatusOK {
 			if _, skipErr := io.CopyN(io.Discard, resp.Body, written); skipErr != nil {
@@ -372,7 +394,7 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 
 		if !headerWritten {
 			w.Header().Set("Content-Type", ct)
-			if size >= 0 {
+			if size > 0 {
 				w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 			}
 			w.Header().Set("X-Cache", "MISS")

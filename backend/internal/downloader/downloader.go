@@ -93,7 +93,7 @@ func New(c *cache.Manager, lim *ratelimit.Registry, upstreamProxy string, log *z
 	// 包文件本身可能是 gzip（.tar.gz），禁止 Transport 按 Content-Encoding 自动解压
 	transport.DisableCompression = true
 	transport.TLSHandshakeTimeout = 30 * time.Second
-	transport.ResponseHeaderTimeout = 60 * time.Second
+	transport.ResponseHeaderTimeout = 90 * time.Second
 	transport.IdleConnTimeout = 90 * time.Second
 	transport.DialContext = (&net.Dialer{
 		Timeout:   30 * time.Second,
@@ -513,6 +513,9 @@ func (e *Engine) downloadSerialOnce(ctx context.Context, pl *ratelimit.PlatformL
 	if (opt.Kind == "package" || opt.Kind == "") && isHTMLContentType(ct) {
 		return nil, fmt.Errorf("upstream returned HTML, not a package file")
 	}
+	if opt.Platform == "docker" && looksLikeDockerNonBlobJSON(ct) {
+		return nil, fmt.Errorf("upstream returned JSON/manifest for docker blob (not a layer)")
+	}
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
@@ -759,7 +762,8 @@ func (e *Engine) acquireTaskSlot(ctx context.Context, pl *ratelimit.PlatformLimi
 	}
 }
 
-// Head 探测上游文件大小（用于 boost / 分片判断）；ContentLength 可能为 -1
+// Head 探测上游文件大小（用于 boost / 分片 / Docker descriptor 校验）。
+// 成功时保证 size>0；拿不到有效大小则返回 error（绝不把 -1/0 当成功）。
 func (e *Engine) Head(ctx context.Context, rawURL string, headers http.Header) (int64, string, string, error) {
 	return e.head(ctx, Options{URL: rawURL, Headers: headers})
 }
@@ -776,11 +780,85 @@ func (e *Engine) head(ctx context.Context, opt Options) (int64, string, string, 
 	if err != nil {
 		return 0, "", "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return 0, "", "", fmt.Errorf("HEAD %s: %s", opt.URL, resp.Status)
+	finalURL := resp.Request.URL.String()
+	ct := resp.Header.Get("Content-Type")
+	status := resp.StatusCode
+	cl := resp.ContentLength
+	_ = resp.Body.Close()
+	if status >= 400 {
+		return 0, "", "", fmt.Errorf("HEAD %s: HTTP %d", opt.URL, status)
 	}
-	return resp.ContentLength, resp.Header.Get("Content-Type"), resp.Request.URL.String(), nil
+	if cl > 0 {
+		return cl, ct, finalURL, nil
+	}
+	// 无 Content-Length：用 Range bytes=0-0 从 Content-Range 解析 total（containerd 依赖真实 size）
+	size, rangeCT, rangeURL, rangeErr := e.headSizeViaRange(ctx, opt)
+	if rangeErr != nil {
+		if cl == 0 {
+			return 0, "", "", fmt.Errorf("HEAD %s: content size of zero", opt.URL)
+		}
+		return 0, "", "", fmt.Errorf("HEAD %s: missing content length: %w", opt.URL, rangeErr)
+	}
+	if rangeCT != "" {
+		ct = rangeCT
+	}
+	if rangeURL != "" {
+		finalURL = rangeURL
+	}
+	return size, ct, finalURL, nil
+}
+
+// headSizeViaRange 发 Range: bytes=0-0，从 Content-Range 解析总长度。
+func (e *Engine) headSizeViaRange(ctx context.Context, opt Options) (int64, string, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, opt.URL, nil)
+	if err != nil {
+		return 0, "", "", err
+	}
+	copyHeaders(req, opt.Headers)
+	req.Header.Del("Accept-Encoding")
+	req.Header.Set("Range", "bytes=0-0")
+	resp, err := e.headClient.Do(req)
+	if err != nil {
+		return 0, "", "", err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64))
+	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
+		if resp.StatusCode >= 400 {
+			return 0, "", "", fmt.Errorf("Range probe %s: %s", opt.URL, resp.Status)
+		}
+		return 0, "", "", fmt.Errorf("Range probe unexpected status %s", resp.Status)
+	}
+	size := parseContentRangeTotal(resp.Header.Get("Content-Range"))
+	if size <= 0 && resp.ContentLength > 0 && resp.StatusCode == http.StatusOK {
+		// 上游忽略 Range 回了整包：CL 即总长
+		size = resp.ContentLength
+	}
+	if size <= 0 {
+		return 0, "", "", fmt.Errorf("Range probe: cannot resolve size")
+	}
+	return size, resp.Header.Get("Content-Type"), resp.Request.URL.String(), nil
+}
+
+// parseContentRangeTotal 解析 Content-Range: bytes start-end/total；* 或无效返回 -1。
+func parseContentRangeTotal(cr string) int64 {
+	cr = strings.TrimSpace(cr)
+	if cr == "" {
+		return -1
+	}
+	i := strings.LastIndexByte(cr, '/')
+	if i < 0 || i+1 >= len(cr) {
+		return -1
+	}
+	total := strings.TrimSpace(cr[i+1:])
+	if total == "*" || total == "" {
+		return -1
+	}
+	n, err := strconv.ParseInt(total, 10, 64)
+	if err != nil || n <= 0 {
+		return -1
+	}
+	return n
 }
 
 func (e *Engine) fetchChunk(ctx context.Context, pl *ratelimit.PlatformLimiter, opt Options, lease *prefetchLease, f *os.File, start, end int64, onBytes func(int64)) error {
@@ -893,6 +971,7 @@ func isTransientNetErr(err error) bool {
 	s := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(s, "tls handshake timeout"),
+		strings.Contains(s, "timeout awaiting response headers"),
 		strings.Contains(s, "i/o timeout"),
 		strings.Contains(s, "connection reset"),
 		strings.Contains(s, "connection refused"),

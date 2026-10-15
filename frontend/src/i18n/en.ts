@@ -75,9 +75,11 @@ export default {
     disabled: 'Disabled',
     pypiHint: 'Point pip / uv index URLs at this download service.',
     npmHint:
-      'Point npm / pnpm / yarn registry here; when Yarn/pnpm come from Corepack, also set COREPACK_NPM_REGISTRY.',
-    dockerHint: 'Point Docker daemon registry-mirrors at this download service (read-only pull-through cache).',
+      'Point npm / pnpm / yarn registry at the download port (default 18081), not the admin UI port (18082). Cold misses go to the domestic npmmirror upstream; if it is slow or times out, set npm upstream to https://registry.npmjs.org in config and use an outbound proxy. For Corepack-installed Yarn/pnpm also set COREPACK_NPM_REGISTRY; if special /yarn/... paths 404, use npm i -g yarn instead.',
+    dockerHint:
+      'Point Docker daemon registry-mirrors at this download service (read-only pull-through). Docker 24+/29 with the containerd image store (containerd-snapshotter) may fail blob Content-Length checks on older builds—upgrade this service or temporarily disable that feature. Uncovered/private repos may return 401; on failure the client may still fall back to Docker Hub and time out.',
     dockerDaemon: '/etc/docker/daemon.json',
+    dockerCompatNote: 'Compatibility (containerd)',
     goproxyHint: 'Point GOPROXY at this download service (read-only module proxy with sumdb proxying).',
     goproxyGlobal: 'Global (go env -w)',
     goproxyLocal: 'Local (shell / one-off)',

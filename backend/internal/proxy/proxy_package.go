@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/livehl/mirrorhub/internal/cache"
@@ -14,6 +15,24 @@ import (
 	"github.com/livehl/mirrorhub/internal/platform"
 	"github.com/livehl/mirrorhub/internal/router"
 )
+
+// looksLikeNonArtifactBlobType 粗判 Docker blob 不应出现的类型（错误 JSON / manifest）。
+func looksLikeNonArtifactBlobType(ct string) bool {
+	low := strings.ToLower(strings.TrimSpace(ct))
+	if low == "" {
+		return false
+	}
+	if strings.Contains(low, "text/html") {
+		return true
+	}
+	if strings.Contains(low, "json") &&
+		(strings.Contains(low, "manifest") || strings.Contains(low, "error") ||
+			strings.Contains(low, "vnd.docker.distribution.manifest") ||
+			strings.Contains(low, "vnd.oci.image")) {
+		return true
+	}
+	return false
+}
 
 func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router.Match, plat platform.Platform, cfg config.Config, pypi config.PlatformConfig, prefetch, boost bool, onAcquired func(), onProgress func(done, total int64), taskID string) (string, string, error) {
 	origURL := m.TargetURL
@@ -42,21 +61,36 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	}
 
 	if entry, ok := s.cache.Get(cacheKey, m.Platform); ok {
-		return s.servePackageHit(w, r, entry, boost, onAcquired, onProgress)
+		if entry.Size <= 0 {
+			// 零长度脏条目（历史 HEAD/入库异常）：删掉并回源，避免 containerd size of zero
+			_ = s.cache.Delete(cacheKey)
+		} else {
+			return s.servePackageHit(w, r, entry, boost, onAcquired, onProgress)
+		}
 	}
 
 	// HEAD 请求直接探测上游文件大小，绕过 task semaphore 避免被暂停的 prefetch 任务阻塞。
 	if r.Method == http.MethodHead {
 		// 给 HEAD 请求一个短超时，避免被上游慢连接阻塞
-		headCtx, headCancel := context.WithTimeout(r.Context(), 10*time.Second)
+		headCtx, headCancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer headCancel()
 		size, ct, _, headErr := s.dl.Head(headCtx, origURL, headers)
 		if headErr != nil {
 			http.Error(w, headErr.Error(), http.StatusBadGateway)
 			return "miss", "proxy", headErr
 		}
+		if size <= 0 {
+			err := fmt.Errorf("upstream content size of zero")
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return "miss", "proxy", err
+		}
 		if pypihandler.IsHTMLContentType(ct) {
 			err := fmt.Errorf("upstream returned HTML for package path (not an artifact)")
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return "miss", "proxy", err
+		}
+		if m.Platform == "docker" && looksLikeNonArtifactBlobType(ct) {
+			err := fmt.Errorf("upstream returned non-artifact content-type for docker blob: %s", ct)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return "miss", "proxy", err
 		}
@@ -86,14 +120,24 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	fetchURL := origURL
 	var size int64 = -1
 	hasSize := false
-	// SkipUpstreamHead：交互冷路径跳过上游 HEAD；HF 等需 CL 校验的不设此标志
+	// SkipUpstreamHead：交互冷路径跳过上游 HEAD；Docker blob / HF 等需 CL 校验的不设此标志
 	skipHead := m.SkipUpstreamHead && !prefetch
 	// 交互路径：Begin 时已 MarkPreparing；真正占槽下载时由 OnAcquired→MarkRunning
 	if !skipHead {
 		hs, headCT, finalURL, headErr := s.dl.Head(r.Context(), origURL, headers)
-		if headErr == nil {
+		if headErr != nil {
+			if m.Platform == "docker" {
+				http.Error(w, headErr.Error(), http.StatusBadGateway)
+				return "miss", "proxy", headErr
+			}
+		} else if hs > 0 {
 			if pypihandler.IsHTMLContentType(headCT) {
 				err := fmt.Errorf("upstream returned HTML for package path (not an artifact)")
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return "miss", "proxy", err
+			}
+			if m.Platform == "docker" && looksLikeNonArtifactBlobType(headCT) {
+				err := fmt.Errorf("upstream returned non-artifact content-type for docker blob: %s", headCT)
 				http.Error(w, err.Error(), http.StatusBadGateway)
 				return "miss", "proxy", err
 			}
@@ -102,6 +146,10 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 			if finalURL != "" {
 				fetchURL = finalURL
 			}
+		} else if m.Platform == "docker" {
+			err := fmt.Errorf("upstream content size of zero")
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return "miss", "proxy", err
 		}
 	}
 
@@ -198,6 +246,12 @@ func (w *writeTrack) Flush() {
 }
 
 func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *cache.Entry, boost bool, onAcquired func(), onProgress func(done, total int64)) (string, string, error) {
+	if entry != nil && entry.Size <= 0 {
+		_ = s.cache.Delete(entry.Key)
+		err := fmt.Errorf("cached entry has zero size")
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return "miss", "cache", err
+	}
 	if onAcquired != nil {
 		onAcquired()
 	}

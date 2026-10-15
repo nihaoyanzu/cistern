@@ -75,9 +75,11 @@ export default {
     disabled: '未启用',
     pypiHint: '将 pip / uv 的索引指向本机下载服务。',
     npmHint:
-      '将 npm / pnpm / yarn 的 registry 指向本机；Yarn/pnpm 经 Corepack 安装时还须设置 COREPACK_NPM_REGISTRY。',
-    dockerHint: '将 Docker daemon 的 registry-mirrors 指向本机下载服务（只读 pull-through 缓存）。',
+      '将 npm / pnpm / yarn 的 registry 指向本机「下载口」（默认 18081），不是管理 UI 口（18082）。首次未命中会回源国内 npmmirror，偏慢或超时时可在配置里把 npm 上游改为 https://registry.npmjs.org 并配置出站代理。Yarn/pnpm 经 Corepack 安装时建议设置 COREPACK_NPM_REGISTRY；若 /yarn/... 特殊路径 404，可改用 npm i -g yarn。',
+    dockerHint:
+      '将 Docker daemon 的 registry-mirrors 指向本机下载服务（只读 pull-through）。Docker 24+/29 若启用 containerd 镜像存储（containerd-snapshotter），旧版可能因 blob Content-Length 校验失败；请升级本服务或临时关闭该特性。非公开/未覆盖仓库可能 401；失败时客户端仍可能回落 Docker Hub 并超时。',
     dockerDaemon: '/etc/docker/daemon.json',
+    dockerCompatNote: '兼容说明（containerd）',
     goproxyHint: '将 GOPROXY 指向本机下载服务（只读 module proxy，含 sumdb 代理）。',
     goproxyGlobal: '全局（go env -w）',
     goproxyLocal: '局部（当前终端 / 单次命令）',
