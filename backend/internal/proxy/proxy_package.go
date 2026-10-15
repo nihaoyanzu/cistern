@@ -54,13 +54,14 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	prepareCtx, prepareCancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer prepareCancel()
 
-	injectAuth := func() error {
+	injectAuthCtx := func(ctx context.Context) error {
 		auther, ok := plat.(platform.UpstreamAuther)
 		if !ok {
 			return nil
 		}
-		return auther.InjectUpstreamAuth(prepareCtx, headers, cfg, r.URL.Path)
+		return auther.InjectUpstreamAuth(ctx, headers, cfg, r.URL.Path)
 	}
+	injectAuth := func() error { return injectAuthCtx(prepareCtx) }
 	invalidateAuth := func() {
 		if inv, ok := plat.(platform.UpstreamAuthInvalidator); ok {
 			inv.InvalidateUpstreamAuth(cfg, r.URL.Path)
@@ -227,12 +228,46 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		OnHit:          onHit,
 		OnWaiting:      onWaiting,
 		OnProgress:     onProgress,
+		OnAuthFail: func(actx context.Context, h http.Header) error {
+			invalidateAuth()
+			if err := injectAuthCtx(actx); err != nil {
+				return err
+			}
+			// 把最新 Authorization 拷回调用方 header map
+			for k, vals := range headers {
+				h[k] = append([]string(nil), vals...)
+			}
+			return nil
+		},
+	}
+
+	writeUpstreamErr := func(err error, wrote bool) {
+		if wrote {
+			return
+		}
+		code := http.StatusBadGateway
+		switch downloader.ErrorCode(err) {
+		case downloader.CodeAuthRequired, downloader.CodeAuthFailed:
+			code = http.StatusUnauthorized
+		case downloader.CodeForbidden:
+			code = http.StatusForbidden
+		case downloader.CodeNotFound:
+			code = http.StatusNotFound
+		}
+		if isAuthFail(err) && code == http.StatusBadGateway {
+			if strings.Contains(strings.ToLower(err.Error()), "403") || strings.Contains(strings.ToLower(err.Error()), "forbidden") {
+				code = http.StatusForbidden
+			} else {
+				code = http.StatusUnauthorized
+			}
+		}
+		http.Error(w, err.Error(), code)
 	}
 
 	if !prefetch {
 		tw := &writeTrack{ResponseWriter: w}
 		label, err := s.dl.ServePackage(r.Context(), tw, opt)
-		// 写头前 401/403：换票后重试一次 ServePackage
+		// 写头前 401/403：换票后重试一次 ServePackage（OnAuthFail 也会在引擎内触发）
 		if err != nil && !tw.wrote && isAuthFail(err) {
 			invalidateAuth()
 			if injErr := injectAuth(); injErr == nil {
@@ -246,9 +281,8 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		if label == "hit" {
 			strat = "cache"
 		}
-		// 未写响应头就失败时补 502，避免净空 200
-		if err != nil && !tw.wrote {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+		if err != nil {
+			writeUpstreamErr(err, tw.wrote)
 		}
 		return label, strat, err
 	}
@@ -260,7 +294,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 
 	res, err := s.dl.GetOrDownload(r.Context(), opt)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeUpstreamErr(err, false)
 		return "miss", "parallel", err
 	}
 	label, _, err := s.serveDownloadResultFull(w, res, fileBoost)

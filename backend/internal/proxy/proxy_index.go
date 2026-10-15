@@ -319,5 +319,6 @@ func statusSuggestsAuth(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "401") || strings.Contains(msg, "unauthorized")
+	return strings.Contains(msg, "401") || strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "403") || strings.Contains(msg, "forbidden")
 }
