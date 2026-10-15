@@ -255,16 +255,15 @@ function onVersionClick() {
     return
   }
   if (!st) {
-    resultText.value = t('common.updateChecking')
-    showResultModal.value = true
+    // 尚无结果时先检测，有结论再弹窗（不展示「正在检测」）
     void checkUpdate(true).then(() => {
       const next = updateStatus.value
       if (next?.update_available) {
-        showResultModal.value = false
         showConfirmModal.value = true
         return
       }
       resultText.value = formatUpdateResult(next)
+      showResultModal.value = true
     })
     return
   }
@@ -283,7 +282,7 @@ function onVersionClick() {
 }
 
 function formatUpdateResult(st: UpdateStatus | null | undefined): string {
-  if (!st) return t('common.updateChecking')
+  if (!st) return ''
   if (st.error) return t('common.updateError', { error: st.error })
   if (st.update_available) {
     return t('common.updateConfirmDesc', {
@@ -312,17 +311,19 @@ async function pollUpdateProgressOnce(): Promise<string> {
   }
 }
 
+/** 重启后等 /health：缓存越大启动越慢，拉长等待且单次探测不设短超时 */
 async function waitForServiceBack() {
-  for (let i = 0; i < 60; i++) {
-    await new Promise((r) => setTimeout(r, 1500))
+  const deadline = Date.now() + 30 * 60 * 1000 // 最长约 30 分钟
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 2000))
     try {
-      const res = await fetch('/health')
+      const res = await fetch('/health', { cache: 'no-store' })
       if (res.ok) {
         await checkUpdate(true)
         return true
       }
     } catch {
-      /* 重启中 */
+      /* 进程尚未监听，继续等 */
     }
   }
   return false
@@ -602,9 +603,6 @@ function goAccount() {
         <span class="truncate font-mono">
           <template v-if="updateStatus?.update_available">
             {{ displayVersion }} · {{ t('common.updateAvailable') }}
-          </template>
-          <template v-else-if="updateLoading && !updateStatus">
-            {{ t('common.updateChecking') }}
           </template>
           <template v-else>
             {{ displayVersion }}

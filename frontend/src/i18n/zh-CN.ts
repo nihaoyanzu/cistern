@@ -27,7 +27,7 @@ export default {
     updateError: '无法检测更新：{error}',
     updateConfirmTitle: '确认升级',
     updateConfirmDesc:
-      '将从 {current} 升级到 {latest}。升级会清空当前预拉取/调度队列，并短暂重启服务。是否继续？',
+      '将从 {current} 升级到 {latest}。升级会清空当前预拉取/调度队列并重启服务；本地缓存文件越多，重启加载越慢，请耐心等待。是否继续？',
     updateApply: '立即升级',
     updateApplying: '正在升级…',
     updateApplied: '升级完成，服务已恢复',

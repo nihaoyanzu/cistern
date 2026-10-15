@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -45,9 +44,8 @@ type Server struct {
 	prefetch *prefetch.Service
 	auth     *auth.Service
 	traffic  *traffic.Recorder
-	log      *zap.Logger
-	webDir   string
-	updater  *update.Checker
+	log     *zap.Logger
+	updater *update.Checker
 
 	catalogMu         sync.RWMutex
 	catalogNames      []string
@@ -66,7 +64,7 @@ type searchCacheEntry struct {
 	at    time.Time
 }
 
-func New(cfg *config.Manager, c *cache.Manager, dl *downloader.Engine, lim *ratelimit.Registry, sched *scheduler.Scheduler, pf *prefetch.Service, authSvc *auth.Service, tr *traffic.Recorder, log *zap.Logger, webDir string) *Server {
+func New(cfg *config.Manager, c *cache.Manager, dl *downloader.Engine, lim *ratelimit.Registry, sched *scheduler.Scheduler, pf *prefetch.Service, authSvc *auth.Service, tr *traffic.Recorder, log *zap.Logger) *Server {
 	s := &Server{
 		cfg:         cfg,
 		cache:       c,
@@ -77,7 +75,6 @@ func New(cfg *config.Manager, c *cache.Manager, dl *downloader.Engine, lim *rate
 		auth:        authSvc,
 		traffic:     tr,
 		log:         log,
-		webDir:      strings.TrimSpace(webDir),
 		updater:     update.New(cfg, log),
 		searchCache: map[string]searchCacheEntry{},
 	}
@@ -129,34 +126,9 @@ func (s *Server) Routes() http.Handler {
 		})
 	})
 
-	// 优先外部目录（本地热更）；否则用嵌入的管理台
-	if s.webDir != "" {
-		r.NotFound(spaFileServer(s.webDir))
-	} else {
-		r.NotFound(webui.Handler())
-	}
+	// 管理台仅使用嵌入的前端构建产物（go:embed）
+	r.NotFound(webui.Handler())
 	return r
-}
-
-// spaFileServer 托管前端构建产物；找不到文件时回退 index.html（Vue Router history）
-func spaFileServer(webDir string) http.HandlerFunc {
-	root := http.Dir(webDir)
-	fs := http.FileServer(root)
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path != "" {
-			if f, err := root.Open(path); err == nil {
-				_ = f.Close()
-				fs.ServeHTTP(w, r)
-				return
-			}
-		}
-		http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
-	}
 }
 
 func (s *Server) cors(next http.Handler) http.Handler {

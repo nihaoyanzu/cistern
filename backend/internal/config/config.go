@@ -19,7 +19,6 @@ type Bootstrap struct {
 	AdminAddr   string
 	DataDir     string
 	DatabaseURL string
-	WebDir      string // 管理台静态资源目录；空则不托管前端
 	LogLevel    string
 }
 
@@ -210,7 +209,6 @@ func LoadBootstrap() Bootstrap {
 		AdminAddr:   envOr("MIRRORHUB_ADMIN_ADDR", ":8082"),
 		DataDir:     dataDir,
 		DatabaseURL: os.Getenv("DATABASE_URL"),
-		WebDir:      strings.TrimSpace(os.Getenv("MIRRORHUB_WEB_DIR")),
 		LogLevel:    envOr("MIRRORHUB_LOG_LEVEL", "info"),
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"time"
 
@@ -100,7 +101,11 @@ func main() {
 	}
 
 	proxySrv := proxy.New(cfgMgr, cacheMgr, dl, sched, limiters, tr, log)
-	adminSrv := api.New(cfgMgr, cacheMgr, dl, limiters, sched, pf, authSvc, tr, log, boot.WebDir)
+	if v := strings.TrimSpace(os.Getenv("MIRRORHUB_WEB_DIR")); v != "" {
+		log.Warn("MIRRORHUB_WEB_DIR 已废弃，管理台仅使用嵌入前端，该变量将被忽略", zap.String("value", v))
+	}
+
+	adminSrv := api.New(cfgMgr, cacheMgr, dl, limiters, sched, pf, authSvc, tr, log)
 	adminSrv.StartCatalog(ctx)
 
 	cfg = cfgMgr.Get()
@@ -116,13 +121,9 @@ func main() {
 		}
 	}()
 	go func() {
-		webSrc := "embed"
-		if boot.WebDir != "" {
-			webSrc = boot.WebDir
-		}
 		log.Info("admin listening",
 			zap.String("addr", cfg.Server.AdminAddr),
-			zap.String("web", webSrc),
+			zap.String("web", "embed"),
 			zap.String("version", version.Version),
 		)
 		if err := adminHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {

@@ -27,7 +27,7 @@ export default {
     updateError: 'Update check failed: {error}',
     updateConfirmTitle: 'Confirm upgrade',
     updateConfirmDesc:
-      'Upgrade from {current} to {latest}? This clears the current prefetch/queue and restarts the service briefly.',
+      'Upgrade from {current} to {latest}? This clears the prefetch/queue and restarts the service. More local cache files mean a slower restart — please wait.',
     updateApply: 'Upgrade now',
     updateApplying: 'Upgrading…',
     updateApplied: 'Upgrade complete, service is back',
