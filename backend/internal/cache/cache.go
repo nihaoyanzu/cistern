@@ -31,18 +31,19 @@ var (
 )
 
 type Entry struct {
-	Key           string    `json:"key"`
-	FilePath      string    `json:"file_path"`
-	ContentType   string    `json:"content_type"`
-	Size          int64     `json:"size"`
-	CreatedAt     time.Time `json:"created_at"`
-	LastAccess    time.Time `json:"last_access"`
-	TTLSeconds    int       `json:"ttl_seconds"`
-	SourceURL     string    `json:"source_url,omitempty"`
-	Kind          string    `json:"kind,omitempty"` // index | package | metadata
-	Digest        string    `json:"digest,omitempty"`
-	ETag          string    `json:"etag,omitempty"`
-	UpstreamETag  string    `json:"upstream_etag,omitempty"` // 上游响应 ETag，用于条件请求续期
+	Key          string    `json:"key"`
+	FilePath     string    `json:"file_path"`
+	ContentType  string    `json:"content_type"`
+	Size         int64     `json:"size"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastAccess   time.Time `json:"last_access"`
+	TTLSeconds   int       `json:"ttl_seconds"`
+	SourceURL    string    `json:"source_url,omitempty"`
+	Kind         string    `json:"kind,omitempty"` // index | package | metadata
+	Digest       string    `json:"digest,omitempty"`
+	ETag         string    `json:"etag,omitempty"`
+	UpstreamETag string    `json:"upstream_etag,omitempty"` // 上游响应 ETag，用于条件请求续期
+	RepoCommit   string    `json:"repo_commit,omitempty"`   // HF X-Repo-Commit，供 huggingface_hub 识别 Hub 端点
 }
 
 // Meta 写入缓存时的附加元数据
@@ -51,6 +52,7 @@ type Meta struct {
 	Kind         string
 	Digest       string
 	UpstreamETag string // 上游响应 ETag，用于条件请求续期
+	RepoCommit   string // HF X-Repo-Commit
 }
 
 type Stats struct {
@@ -737,6 +739,7 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 		Digest:       digestHex,
 		ETag:         etag,
 		UpstreamETag: meta.UpstreamETag,
+		RepoCommit:   meta.RepoCommit,
 	}
 	if err := m.putMetaLocked(entry); err != nil {
 		return nil, err

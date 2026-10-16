@@ -21,6 +21,7 @@ func (e *Engine) head(ctx context.Context, opt Options) (int64, string, string, 
 }
 
 func (e *Engine) headWithETag(ctx context.Context, opt Options) (int64, string, string, string, error) {
+	ctx, _ = WithHubFileMeta(ctx)
 	// 使用独立的 headClient，不复用连接池，避免卡死连接阻塞
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, opt.URL, nil)
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 
 // downloadSerial 单连接整包下载（上游未提供 Content-Length 时使用）
 func (e *Engine) downloadSerial(ctx context.Context, pl *ratelimit.PlatformLimiter, opt Options, lease *prefetchLease, ct, strategy string) (*Result, error) {
+	ctx, _ = WithHubFileMeta(ctx)
 	tmp := e.cache.TempPath(opt.CacheKey + ".serial")
 	var last error
 	for attempt := 0; attempt < 5; attempt++ {
@@ -267,10 +268,12 @@ func (e *Engine) downloadSerialOnce(ctx context.Context, pl *ratelimit.PlatformL
 	if err := verifyAndRemember(tmp, opt); err != nil {
 		return nil, err
 	}
+	repoCommit, _, _ := HubFileMetaFrom(ctx).snapshot()
 	entry, err := e.cache.Put(opt.CacheKey, tmp, ct, opt.TTLSeconds, cache.Meta{
-		SourceURL: opt.metaSource(),
-		Kind:      opt.metaKind(),
-		Digest:    opt.ExpectedSHA256,
+		SourceURL:  opt.metaSource(),
+		Kind:       opt.metaKind(),
+		Digest:     opt.ExpectedSHA256,
+		RepoCommit: repoCommit,
 	})
 	if err != nil {
 		return nil, err

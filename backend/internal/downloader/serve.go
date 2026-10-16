@@ -143,6 +143,9 @@ func serveCachedFile(w http.ResponseWriter, entry *cache.Entry, f *os.File, boos
 	if boost {
 		w.Header().Set("X-Mirrorhub-Boost", "1")
 	}
+	if entry.RepoCommit != "" {
+		w.Header().Set("X-Repo-Commit", entry.RepoCommit)
+	}
 
 	start, end, ok, err := parseSingleRange(rangeHeader, entry.Size)
 	if err != nil {

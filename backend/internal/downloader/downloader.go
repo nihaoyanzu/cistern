@@ -127,11 +127,12 @@ func New(c *cache.Manager, lim *ratelimit.Registry, upstreamProxy string, log *z
 		cache:    c,
 		limiters: lim,
 		client: &http.Client{
-			Transport: transport,
+			// hubCaptureRT：跟随 CDN 重定向前保留 X-Repo-Commit 等 Hub 头
+			Transport: wrapHubCapture(transport),
 			Timeout:   0,
 		},
 		headClient: &http.Client{
-			Transport: headTransport,
+			Transport: wrapHubCapture(headTransport),
 			Timeout:   10 * time.Second,
 		},
 		log:       log,
@@ -175,10 +176,10 @@ func (e *Engine) SetUpstreamProxy(proxyURL string) {
 		// 换代理后必须丢掉旧 keep-alive，否则会继续直连上游
 		tr.CloseIdleConnections()
 	}
-	if t, ok := e.client.Transport.(*http.Transport); ok {
+	if t := unwrapHTTPTransport(e.client.Transport); t != nil {
 		apply(t)
 	}
-	if t, ok := e.headClient.Transport.(*http.Transport); ok {
+	if t := unwrapHTTPTransport(e.headClient.Transport); t != nil {
 		apply(t)
 	}
 }

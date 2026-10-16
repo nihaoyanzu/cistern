@@ -198,7 +198,7 @@ func (s *Scheduler) MarkPreparing(id string) {
 }
 
 // MarkRunning 将 queued/preparing/waiting 推进为 running（已占槽并开始传数据）。
-// 首次进入 running 且 wantP0 时在持锁内计入 p0Active 并 pause 本平台预取。
+// 首次进入 running 且 wantP0 时在持锁内计入 p0Active 并全局 pause 预取。
 func (s *Scheduler) MarkRunning(id string) {
 	// 预读任务是否可能 activateP0，以便先 cancelResumeTimer（锁序 resumeMu → s.mu）
 	s.mu.Lock()
@@ -590,23 +590,39 @@ func (s *Scheduler) pausePrefetchIfNeeded(platform string) {
 }
 
 // pausePrefetchLocked 假定已持 s.mu；OnInteractive!=pause 时为 no-op。
+// 任一平台出现交互 P0 时全局暂停所有平台预取（platform 仅用于日志归因）。
 func (s *Scheduler) pausePrefetchLocked(platform string) {
 	cfg := s.cfgFn()
 	if cfg.Prefetch.OnInteractive != "pause" {
 		return
 	}
-	if pl := s.limiters.Get(platform); pl != nil {
-		if changed := pl.SetPrefetchPaused(true); changed {
-			s.refreshPrefetchPausedMetric()
-			if s.log != nil {
-				s.log.Info("prefetch paused due to interactive traffic", zap.String("platform", platform))
-			}
+	changedN := 0
+	for _, snap := range s.limiters.Snapshots() {
+		name, _ := snap["platform"].(string)
+		if name == "" {
+			continue
+		}
+		pl := s.limiters.Get(name)
+		if pl == nil {
+			continue
+		}
+		if pl.SetPrefetchPaused(true) {
+			changedN++
 		}
 	}
-	// 同平台活跃 P2→P1（含排队/等待），避免交互期间预取被永久卡住在 P2
+	if changedN > 0 {
+		s.refreshPrefetchPausedMetric()
+		if s.log != nil {
+			s.log.Info("prefetch paused globally due to interactive traffic",
+				zap.String("trigger_platform", platform),
+				zap.Int("platforms_paused", changedN),
+			)
+		}
+	}
+	// 全局活跃 P2→P1（含排队/等待），避免交互期间预取被永久卡住在 P2
 	now := time.Now()
 	for _, t := range s.tasks {
-		if t == nil || t.Platform != platform {
+		if t == nil {
 			continue
 		}
 		if !isActiveCancellableStatus(t.Status) {
@@ -680,7 +696,7 @@ func (s *Scheduler) resumePrefetchIfIdle() {
 	if !cfg.Prefetch.ResumeOnIdle {
 		return
 	}
-	// 任一平台可能已 idle：即使全局仍有其他平台 P0，也武装定时器做按平台 resume
+	// 全局 pause：等全部平台无 P0 后再武装恢复
 	s.resumeMu.Lock()
 	defer s.resumeMu.Unlock()
 	if s.resumeTimer != nil {
@@ -691,7 +707,7 @@ func (s *Scheduler) resumePrefetchIfIdle() {
 	})
 }
 
-// applyPrefetchResumeIdlePlatforms 仅解除 p0ByPlatform[p]==0 的平台 PrefetchPaused。
+// applyPrefetchResumeIdlePlatforms 仅当全局无任何 P0 时解除全部平台 PrefetchPaused。
 // 持 s.mu 完成「读 p0 + SetPrefetchPaused(false)」，避免 Unlock 后新 P0 已 pause 仍被错误恢复。
 func (s *Scheduler) applyPrefetchResumeIdlePlatforms() {
 	cfg := s.cfgFn()
@@ -700,13 +716,13 @@ func (s *Scheduler) applyPrefetchResumeIdlePlatforms() {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changedAny := false
+	if s.p0Active.Load() != 0 {
+		return
+	}
+	changedN := 0
 	for _, snap := range s.limiters.Snapshots() {
 		name, _ := snap["platform"].(string)
 		if name == "" {
-			continue
-		}
-		if s.platformP0Locked(name) != 0 {
 			continue
 		}
 		pl := s.limiters.Get(name)
@@ -714,14 +730,16 @@ func (s *Scheduler) applyPrefetchResumeIdlePlatforms() {
 			continue
 		}
 		if pl.SetPrefetchPaused(false) {
-			changedAny = true
-			if s.log != nil {
-				s.log.Info("prefetch resumed after interactive idle", zap.String("platform", name))
-			}
+			changedN++
 		}
 	}
-	if changedAny {
+	if changedN > 0 {
 		s.refreshPrefetchPausedMetric()
+		if s.log != nil {
+			s.log.Info("prefetch resumed globally after interactive idle",
+				zap.Int("platforms_resumed", changedN),
+			)
+		}
 	}
 }
 

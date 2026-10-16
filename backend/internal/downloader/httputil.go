@@ -61,6 +61,9 @@ func isTransientNetErr(err error) bool {
 		strings.Contains(s, "unexpected eof"),
 		strings.Contains(s, "broken pipe"),
 		strings.Contains(s, "server closed idle connection"),
+		strings.Contains(s, "http2: response body closed"),
+		strings.Contains(s, "stream closed"),
+		strings.Contains(s, "connection closed"),
 		strings.Contains(s, "temporary"):
 		return true
 	default:

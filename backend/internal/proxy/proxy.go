@@ -296,6 +296,9 @@ func (s *Server) serveDownloadResultFull(w http.ResponseWriter, res *downloader.
 	if boost {
 		w.Header().Set("X-Mirrorhub-Boost", "1")
 	}
+	if ent.RepoCommit != "" {
+		w.Header().Set("X-Repo-Commit", ent.RepoCommit)
+	}
 	_, err := io.Copy(w, f)
 	return cacheLabel, false, err
 }

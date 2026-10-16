@@ -38,6 +38,7 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 		ctx, cancel = context.WithTimeout(ctx, interactiveStreamMaxWall)
 		defer cancel()
 	}
+	ctx, hubMeta := WithHubFileMeta(ctx)
 	// 下载全程占写租约，Clear 会等到本请求结束且拒绝入库
 	if err := e.cache.HoldWrite(); err != nil {
 		return nil, "", 0, err
@@ -208,6 +209,8 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 			if opt.Boost {
 				w.Header().Set("X-Mirrorhub-Boost", "1")
 			}
+			// HF：把重定向链上捕获的 X-Repo-Commit 等写回客户端
+			ApplyHubFileMetaHeaders(w, hubMeta, resp.Header)
 			w.WriteHeader(http.StatusOK)
 			flushWriter(w)
 			headerWritten = true
@@ -326,10 +329,12 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 		}
 	}
 
+	repoCommit, _, _ := hubMeta.snapshot()
 	entry, err := e.cache.Put(opt.CacheKey, tmp, ct, opt.TTLSeconds, cache.Meta{
-		SourceURL: opt.metaSource(),
-		Kind:      opt.metaKind(),
-		Digest:    digest,
+		SourceURL:  opt.metaSource(),
+		Kind:       opt.metaKind(),
+		Digest:     digest,
+		RepoCommit: repoCommit,
 	})
 	if err != nil {
 		_ = os.Remove(tmp)

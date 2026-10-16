@@ -17,6 +17,7 @@ import (
 
 func (e *Engine) download(ctx context.Context, opt Options) (*Result, error) {
 	opt.resolveExpectedDigest()
+	ctx, _ = WithHubFileMeta(ctx)
 	if opt.Prefetch {
 		if err := e.cache.AllowPrefetchWrite(); err != nil {
 			return nil, err
@@ -400,11 +401,13 @@ func (e *Engine) downloadOnce(ctx context.Context, pl *ratelimit.PlatformLimiter
 		return nil, &FailError{Code: CodeDigestMismatch, Msg: err.Error(), Class: ClassContentChanged, Cause: errDigestMismatch}
 	}
 
+	repoCommit, _, _ := HubFileMetaFrom(ctx).snapshot()
 	entry, err := e.cache.Put(opt.CacheKey, tmp, ct, opt.TTLSeconds, cache.Meta{
 		SourceURL:    opt.metaSource(),
 		Kind:         opt.metaKind(),
 		Digest:       opt.ExpectedSHA256,
 		UpstreamETag: opt.IdentityETag,
+		RepoCommit:   repoCommit,
 	})
 	if err != nil {
 		return nil, err

@@ -85,10 +85,12 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		}
 	}
 
-	headProbe := func() (int64, string, string, error) {
+	headProbe := func() (int64, string, string, *downloader.HubFileMeta, error) {
 		headCtx, headCancel := context.WithTimeout(prepareCtx, 15*time.Second)
 		defer headCancel()
-		return s.dl.Head(headCtx, origURL, headers)
+		headCtx, meta := downloader.WithHubFileMeta(headCtx)
+		size, ct, u, err := s.dl.Head(headCtx, origURL, headers)
+		return size, ct, u, meta, err
 	}
 	isAuthFail := func(err error) bool {
 		if err == nil {
@@ -101,11 +103,11 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 
 	// HEAD 请求直接探测上游文件大小，绕过 task semaphore 避免被暂停的 prefetch 任务阻塞。
 	if r.Method == http.MethodHead {
-		size, ct, _, headErr := headProbe()
+		size, ct, _, hubMeta, headErr := headProbe()
 		if headErr != nil && isAuthFail(headErr) {
 			invalidateAuth()
 			if err := injectAuth(); err == nil {
-				size, ct, _, headErr = headProbe()
+				size, ct, _, hubMeta, headErr = headProbe()
 			}
 		}
 		if headErr != nil {
@@ -135,6 +137,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("X-Cache", "MISS")
 		w.Header().Set("X-Mirrorhub-Strategy", "proxy")
+		downloader.ApplyHubFileMetaHeaders(w, hubMeta, nil)
 		if d, ok := plat.(platform.PackageHeaderDecorator); ok {
 			d.DecoratePackageHeaders(w)
 		}
@@ -153,15 +156,16 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	fetchURL := origURL
 	var size int64 = -1
 	hasSize := false
+	var headHubMeta *downloader.HubFileMeta
 	// SkipUpstreamHead：交互冷路径跳过上游 HEAD；Docker blob / HF 等需 CL 校验的不设此标志
 	skipHead := m.SkipUpstreamHead && !prefetch
 	// 真正占槽下载时由 OnAcquired→MarkRunning
 	if !skipHead {
-		hs, headCT, finalURL, headErr := headProbe()
+		hs, headCT, finalURL, hubMeta, headErr := headProbe()
 		if headErr != nil && isAuthFail(headErr) {
 			invalidateAuth()
 			if err := injectAuth(); err == nil {
-				hs, headCT, finalURL, headErr = headProbe()
+				hs, headCT, finalURL, hubMeta, headErr = headProbe()
 			}
 		}
 		if headErr != nil {
@@ -182,6 +186,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 			}
 			size = hs
 			hasSize = true
+			headHubMeta = hubMeta
 			if finalURL != "" {
 				fetchURL = finalURL
 			}
@@ -190,6 +195,13 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return "miss", "proxy", err
 		}
+	}
+	// HEAD 已跟随到 CDN 时，stream/GET 不会再经过 Hub；把捕获的 X-Repo-Commit 注入下载 ctx
+	serveCtx := r.Context()
+	if headHubMeta != nil {
+		var seeded *downloader.HubFileMeta
+		serveCtx, seeded = downloader.WithHubFileMeta(serveCtx)
+		seeded.CopyFrom(headHubMeta)
 	}
 
 	fileBoost := boost
@@ -266,14 +278,14 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 
 	if !prefetch {
 		tw := &writeTrack{ResponseWriter: w}
-		label, err := s.dl.ServePackage(r.Context(), tw, opt)
+		label, err := s.dl.ServePackage(serveCtx, tw, opt)
 		// 写头前 401/403：换票后重试一次 ServePackage（OnAuthFail 也会在引擎内触发）
 		if err != nil && !tw.wrote && isAuthFail(err) {
 			invalidateAuth()
 			if injErr := injectAuth(); injErr == nil {
 				opt.Headers = headers
 				tw2 := &writeTrack{ResponseWriter: w}
-				label, err = s.dl.ServePackage(r.Context(), tw2, opt)
+				label, err = s.dl.ServePackage(serveCtx, tw2, opt)
 				tw = tw2
 			}
 		}
@@ -292,7 +304,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		return "miss", "parallel", err
 	}
 
-	res, err := s.dl.GetOrDownload(r.Context(), opt)
+	res, err := s.dl.GetOrDownload(serveCtx, opt)
 	if err != nil {
 		writeUpstreamErr(err, false)
 		return "miss", "parallel", err
@@ -357,6 +369,9 @@ func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *
 			w.Header().Set("Accept-Ranges", "bytes")
 			w.Header().Set("Content-Length", strconv.FormatInt(entry.Size, 10))
 			w.Header().Set("X-Cache", "HIT")
+			if entry.RepoCommit != "" {
+				w.Header().Set("X-Repo-Commit", entry.RepoCommit)
+			}
 			w.WriteHeader(http.StatusNotModified)
 			return "hit", "cache", nil
 		}
@@ -371,6 +386,9 @@ func (s *Server) servePackageHit(w http.ResponseWriter, r *http.Request, entry *
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("ETag", etag)
 		w.Header().Set("X-Cache", "HIT")
+		if entry.RepoCommit != "" {
+			w.Header().Set("X-Repo-Commit", entry.RepoCommit)
+		}
 		w.WriteHeader(http.StatusOK)
 		return "hit", "cache", nil
 	}
