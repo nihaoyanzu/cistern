@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,7 +78,18 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	mr := platform.Match(r.URL.Path, cfg)
+	// Corepack 等在 COREPACK_NPM_REGISTRY 带尾斜杠时会拼出 //yarn、//@yarnpkg/...，
+	// npmmirror 对双斜杠直接 404；此处收敛路径再匹配/回源。
+	reqPath := path.Clean(r.URL.Path)
+	if !strings.HasPrefix(reqPath, "/") {
+		reqPath = "/" + reqPath
+	}
+	if reqPath != r.URL.Path {
+		r = r.Clone(r.Context())
+		r.URL.Path = reqPath
+	}
+
+	mr := platform.Match(reqPath, cfg)
 	if mr == nil {
 		http.Error(w, "no matching rule", http.StatusNotFound)
 		return
