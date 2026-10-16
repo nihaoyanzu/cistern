@@ -19,21 +19,18 @@ const snippets = computed<GuideSnippet[]>(() => [
   {
     key: 'goproxyGlobal',
     title: t('guide.goproxyGlobal'),
-    text: `go env -w GOPROXY=${props.baseURL},direct\n# 可选：私有模块仍走直连\n# go env -w GOPRIVATE=*.example.com\n# 完全离线（仅用已缓存）\n# go env -w GOPROXY=${props.baseURL},off`,
+    text: `go env -w GOPROXY=${props.baseURL},direct\n# optional: private modules stay direct\n# go env -w GOPRIVATE=*.example.com\n# offline (cached modules only)\n# go env -w GOPROXY=${props.baseURL},off`,
   },
   {
     key: 'goproxyLocal',
     title: t('guide.goproxyLocal'),
-    text: `# 当前终端\nexport GOPROXY=${props.baseURL},direct\n# 可选：export GOPRIVATE=*.example.com\n\n# 单次命令\nGOPROXY=${props.baseURL},direct go mod download\n\n# 完全离线（仅用已缓存）\n# export GOPROXY=${props.baseURL},off`,
+    text: `# current shell\nexport GOPROXY=${props.baseURL},direct\n# optional: export GOPRIVATE=*.example.com\n\n# one-off\nGOPROXY=${props.baseURL},direct go mod download\n\n# offline (cached modules only)\n# export GOPROXY=${props.baseURL},off`,
   },
 ])
 </script>
 
 <template>
   <section class="ui-panel overflow-hidden">
-    <div class="border-b border-line p-4 sm:p-5">
-      <p class="text-xs text-muted">{{ t('guide.goproxyHint') }}</p>
-    </div>
     <GuideSnippetList
       :snippets="snippets"
       :copied="copied"

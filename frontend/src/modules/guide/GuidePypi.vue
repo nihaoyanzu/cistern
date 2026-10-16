@@ -53,12 +53,11 @@ const snippets = computed(() => (toolTab.value === 'pip' ? pipSnippets.value : u
 
 <template>
   <section class="ui-panel overflow-hidden">
-    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line p-4 sm:p-5">
-      <p class="text-xs text-muted">{{ t('guide.pypiHint') }}</p>
-      <div class="flex gap-1 rounded-xl border border-line bg-bg/60 p-1">
+    <div class="flex justify-center border-b border-line px-4 py-3 sm:px-5">
+      <div class="inline-flex gap-1 rounded-xl border border-line bg-ink/30 p-1">
         <button
           type="button"
-          class="ui-chip"
+          class="ui-chip !py-1.5"
           :class="{ 'ui-chip-active': toolTab === 'pip' }"
           @click="toolTab = 'pip'"
         >
@@ -66,7 +65,7 @@ const snippets = computed(() => (toolTab.value === 'pip' ? pipSnippets.value : u
         </button>
         <button
           type="button"
-          class="ui-chip"
+          class="ui-chip !py-1.5"
           :class="{ 'ui-chip-active': toolTab === 'uv' }"
           @click="toolTab = 'uv'"
         >

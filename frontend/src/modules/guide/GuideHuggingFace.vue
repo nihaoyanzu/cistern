@@ -26,9 +26,6 @@ const snippets = computed<GuideSnippet[]>(() => [
 
 <template>
   <section class="ui-panel overflow-hidden">
-    <div class="border-b border-line p-4 sm:p-5">
-      <p class="text-xs text-muted">{{ t('guide.huggingfaceHint') }}</p>
-    </div>
     <GuideSnippetList
       :snippets="snippets"
       :copied="copied"

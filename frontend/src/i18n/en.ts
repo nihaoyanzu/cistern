@@ -42,7 +42,7 @@ export default {
   },
   nav: {
     overview: 'Overview',
-    dashboard: 'Dashboard',
+    dashboard: 'Console',
     access: 'Recent Access',
     workspace: 'Workspace',
     pypi: 'PyPI',
@@ -74,9 +74,7 @@ export default {
   guide: {
     title: 'Setup guide',
     tagline: 'Intranet download & cache hub',
-    addresses: 'Download service',
-    addressesHint:
-      'Derived from this page’s hostname and the download port (works with Docker port publishing).',
+    setup: 'Module setup',
     pipOnce: 'One-off install',
     pipConfig: 'pip global config',
     uvOnce: 'uv one-off install',
@@ -92,23 +90,15 @@ export default {
     copied: 'Copied',
     noModule: 'No modules enabled.',
     disabled: 'Disabled',
-    pypiHint: 'Point pip / uv index URLs at this download service.',
-    npmHint:
-      'Point npm / pnpm / yarn registry at the download port (default 18081), not the admin UI port (18082). Cold misses go to the domestic npmmirror upstream; if it is slow or times out, set npm upstream to https://registry.npmjs.org in config and use an outbound proxy. For Corepack-installed Yarn/pnpm also set COREPACK_NPM_REGISTRY; if special /yarn/... paths 404, use npm i -g yarn instead.',
-    dockerHint:
-      'Point Docker daemon registry-mirrors at this download service (read-only pull-through). Uncovered/private repos may return 401; on failure the client may still fall back to Docker Hub and time out.',
     dockerDaemon: '/etc/docker/daemon.json',
-    goproxyHint: 'Point GOPROXY at this download service (read-only module proxy with sumdb proxying).',
     goproxyGlobal: 'Global (go env -w)',
     goproxyLocal: 'Local (shell / one-off)',
-    huggingfaceHint: 'Point HF_ENDPOINT at this download service (public models/datasets RO cache; optional server Token for gated).',
     huggingfaceEnv: 'Set HF_ENDPOINT',
-    mavenHint: 'Point Maven / Gradle repository URL at this download service (Maven2 layout read-only cache).',
     mavenSettings: 'Maven settings.xml (mirror)',
     mavenGradle: 'Gradle repositories',
   },
   dashboard: {
-    title: 'Dashboard',
+    title: 'Console',
     subtitle: 'Traffic, cache and scheduler overview',
     moduleEntry: 'Open PyPI workspace',
     pull: 'Pull',

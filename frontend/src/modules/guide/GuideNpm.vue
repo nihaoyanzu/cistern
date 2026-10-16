@@ -16,6 +16,9 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const npmToolTab = ref<'npm' | 'pnpm' | 'yarn'>('npm')
 
+/** Corepack 拼接包路径时以 / 开头；尾斜杠会导致 //yarn、//@yarnpkg/... 被镜像 404 */
+const corepackRegistry = computed(() => props.registryURL.replace(/\/+$/, ''))
+
 const npmSnippets = computed<GuideSnippet[]>(() => [
   {
     key: 'npmGlobal',
@@ -25,7 +28,7 @@ const npmSnippets = computed<GuideSnippet[]>(() => [
   {
     key: 'npmLocal',
     title: t('guide.npmLocal'),
-    text: `# 项目 .npmrc\nregistry=${props.registryURL}`,
+    text: `# project .npmrc\nregistry=${props.registryURL}`,
   },
 ])
 
@@ -38,7 +41,7 @@ const pnpmSnippets = computed<GuideSnippet[]>(() => [
   {
     key: 'pnpmLocal',
     title: t('guide.pnpmLocal'),
-    text: `# 当前终端（Corepack 拉 pnpm 时需要）\nexport COREPACK_NPM_REGISTRY=${props.registryURL}\n\n# 项目 .npmrc\nregistry=${props.registryURL}`,
+    text: `# current shell (Corepack; no trailing slash)\nexport COREPACK_NPM_REGISTRY=${corepackRegistry.value}\n\n# project .npmrc\nregistry=${props.registryURL}`,
   },
 ])
 
@@ -51,7 +54,7 @@ const yarnSnippets = computed<GuideSnippet[]>(() => [
   {
     key: 'yarnLocal',
     title: t('guide.yarnLocal'),
-    text: `# 当前终端（Corepack 拉 Yarn 时需要）\nexport COREPACK_NPM_REGISTRY=${props.registryURL}\n\n# 项目 .npmrc 或 .yarnrc\nregistry=${props.registryURL}`,
+    text: `# current shell (Corepack; no trailing slash)\nexport COREPACK_NPM_REGISTRY=${corepackRegistry.value}\n\n# project .npmrc or .yarnrc\nregistry=${props.registryURL}`,
   },
 ])
 
@@ -64,12 +67,11 @@ const snippets = computed(() => {
 
 <template>
   <section class="ui-panel overflow-hidden">
-    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-line p-4 sm:p-5">
-      <p class="text-xs text-muted whitespace-pre-wrap">{{ t('guide.npmHint') }}</p>
-      <div class="flex gap-1 rounded-xl border border-line bg-bg/60 p-1">
+    <div class="flex justify-center border-b border-line px-4 py-3 sm:px-5">
+      <div class="inline-flex gap-1 rounded-xl border border-line bg-ink/30 p-1">
         <button
           type="button"
-          class="ui-chip"
+          class="ui-chip !py-1.5"
           :class="{ 'ui-chip-active': npmToolTab === 'npm' }"
           @click="npmToolTab = 'npm'"
         >
@@ -77,7 +79,7 @@ const snippets = computed(() => {
         </button>
         <button
           type="button"
-          class="ui-chip"
+          class="ui-chip !py-1.5"
           :class="{ 'ui-chip-active': npmToolTab === 'pnpm' }"
           @click="npmToolTab = 'pnpm'"
         >
@@ -85,7 +87,7 @@ const snippets = computed(() => {
         </button>
         <button
           type="button"
-          class="ui-chip"
+          class="ui-chip !py-1.5"
           :class="{ 'ui-chip-active': npmToolTab === 'yarn' }"
           @click="npmToolTab = 'yarn'"
         >

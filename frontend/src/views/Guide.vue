@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import copy from 'clipboard-copy'
+import DashboardOverview from '@/components/DashboardOverview.vue'
 import ModuleIcon from '@/components/ModuleIcon.vue'
 import { api, getToken, type PublicGuide } from '@/api/client'
 import { setLocale, type SupportedLocale } from '@/i18n'
@@ -14,13 +15,19 @@ import {
 } from '@/modules/registry'
 import { GUIDE_SECTIONS } from '@/modules/guide/sections'
 import { useThemeStore } from '@/stores/theme'
+import type { SystemStats } from '@/types/api'
 
 const { t, locale } = useI18n()
 const theme = useThemeStore()
 const loading = ref(true)
 const guide = ref<PublicGuide | null>(null)
+const stats = ref<SystemStats | null>(null)
 const copied = ref('')
-const activeTab = ref('')
+/** 一级：控制台 / 模块接入 */
+const mainTab = ref<'console' | 'setup'>('console')
+/** 二级：模块说明 */
+const moduleTab = ref('')
+let statsTimer: number | undefined
 
 const loggedIn = computed(() => !!getToken())
 
@@ -36,7 +43,7 @@ function moduleIcon(id: string) {
   return MODULE_BY_ID[id]?.navIcon || ''
 }
 
-const activeSection = computed(() => GUIDE_SECTIONS[activeTab.value] || null)
+const activeSection = computed(() => GUIDE_SECTIONS[moduleTab.value] || null)
 
 /** 用当前打开说明页的 Host + 下载端口（适配 Docker 端口映射）。 */
 function accessDownloadURL(proxyPort: string): string {
@@ -64,16 +71,16 @@ const trustedHost = computed(() => {
   }
 })
 
-function syncTab() {
+function syncModuleTab() {
   const ids = enabledModules.value.map((m) => m.id)
   if (!ids.length) {
-    activeTab.value = ''
+    moduleTab.value = ''
     return
   }
-  if (!ids.includes(activeTab.value)) activeTab.value = ids[0]
+  if (!ids.includes(moduleTab.value)) moduleTab.value = ids[0]
 }
 
-watch(enabledModules, syncTab, { immediate: true })
+watch(enabledModules, syncModuleTab, { immediate: true })
 
 function toggleLang() {
   const next: SupportedLocale = locale.value === 'zh-CN' ? 'en' : 'zh-CN'
@@ -96,19 +103,33 @@ function moduleTitle(id: string) {
   return MODULE_BY_ID[id]?.guideTitle || id
 }
 
+async function loadStats(silent = false) {
+  try {
+    stats.value = await api.getPublicStats()
+  } catch {
+    if (!silent) stats.value = null
+  }
+}
+
 onMounted(async () => {
   loading.value = true
   try {
-    guide.value = await api.getPublicGuide()
-  } catch {
-    guide.value = {
+    const [g] = await Promise.all([
+      api.getPublicGuide().catch(() => null),
+      loadStats(),
+    ])
+    guide.value = g || {
       proxy_port: '18081',
       modules: guideFallbackModules(),
     }
   } finally {
-    syncTab()
+    syncModuleTab()
     loading.value = false
   }
+  statsTimer = window.setInterval(() => loadStats(true), 5000)
+})
+onUnmounted(() => {
+  if (statsTimer) clearInterval(statsTimer)
 })
 </script>
 
@@ -126,7 +147,7 @@ onMounted(async () => {
       />
     </div>
 
-    <div class="relative mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+    <div class="relative mx-auto max-w-screen-xl px-4 py-8 sm:px-6 sm:py-10">
       <header class="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-line pb-6">
         <div class="flex items-center gap-3">
           <img src="/favicon.svg" alt="MirrorHub" class="h-10 w-10" width="40" height="40" />
@@ -162,68 +183,98 @@ onMounted(async () => {
       <div v-if="loading" class="ui-panel p-6 text-sm text-muted">{{ t('common.loading') }}</div>
 
       <template v-else>
-        <div class="mb-4">
-          <div class="ui-label">{{ t('guide.addresses') }}</div>
-          <div class="ui-input font-mono text-sm text-muted">{{ displayHost }}</div>
-          <p class="mt-2 text-xs text-muted">{{ t('guide.addressesHint') }}</p>
+        <div
+          class="mb-6 grid grid-cols-2 gap-1 rounded-xl border border-line bg-panel/60 p-1"
+          role="tablist"
+        >
+          <button
+            type="button"
+            role="tab"
+            class="ui-tab !rounded-lg py-2.5 text-center text-base font-semibold"
+            :class="{ 'ui-tab-active': mainTab === 'console' }"
+            :aria-selected="mainTab === 'console'"
+            @click="mainTab = 'console'"
+          >
+            {{ t('dashboard.title') }}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="ui-tab !rounded-lg py-2.5 text-center text-base font-semibold"
+            :class="{ 'ui-tab-active': mainTab === 'setup' }"
+            :aria-selected="mainTab === 'setup'"
+            @click="mainTab = 'setup'"
+          >
+            {{ t('guide.setup') }}
+          </button>
         </div>
 
-        <div v-if="!enabledModules.length" class="ui-panel p-5 text-sm text-muted">
-          {{ t('guide.noModule') }}
-        </div>
+        <section v-show="mainTab === 'console'" role="tabpanel">
+          <DashboardOverview :stats="stats" :show-settings-link="loggedIn" />
+        </section>
 
-        <template v-else>
-          <div class="mb-4 flex flex-wrap gap-1 rounded-xl border border-line bg-panel/60 p-1">
-            <button
-              v-for="m in enabledModules"
+        <section v-show="mainTab === 'setup'" class="mx-auto max-w-3xl" role="tabpanel">
+          <div v-if="!enabledModules.length" class="ui-panel p-5 text-center text-sm text-muted">
+            {{ t('guide.noModule') }}
+          </div>
+
+          <template v-else>
+            <div class="mb-5 flex justify-center">
+              <div
+                class="inline-flex max-w-full flex-wrap justify-center gap-1 rounded-xl border border-line bg-panel/60 p-1"
+              >
+                <button
+                  v-for="m in enabledModules"
+                  :key="m.id"
+                  type="button"
+                  class="ui-tab inline-flex items-center gap-1.5 text-base"
+                  :class="{ 'ui-tab-active': moduleTab === m.id }"
+                  @click="moduleTab = m.id"
+                >
+                  <ModuleIcon
+                    v-if="moduleIcon(m.id)"
+                    :name="moduleIcon(m.id)"
+                    class="h-5 w-5 shrink-0"
+                    :style="{ color: moduleColor(m.id) }"
+                  />
+                  {{ moduleTitle(m.id) }}
+                </button>
+              </div>
+            </div>
+
+            <component
+              :is="activeSection"
+              v-if="activeSection"
+              :baseURL="baseURL"
+              :indexURL="indexURL"
+              :registryURL="registryURL"
+              :display-host="displayHost"
+              :trusted-host="trustedHost"
+              :copied="copied"
+              @copy="copyText"
+            />
+          </template>
+
+          <p
+            v-if="disabledModules.length"
+            class="mt-5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-sm text-muted"
+          >
+            <span>{{ t('guide.disabled') }}</span>
+            <span
+              v-for="m in disabledModules"
               :key="m.id"
-              type="button"
-              class="ui-tab inline-flex items-center gap-1.5"
-              :class="{ 'ui-tab-active': activeTab === m.id }"
-              @click="activeTab = m.id"
+              class="inline-flex items-center gap-1 opacity-70"
             >
               <ModuleIcon
                 v-if="moduleIcon(m.id)"
                 :name="moduleIcon(m.id)"
-                class="h-4 w-4 shrink-0"
+                class="h-3.5 w-3.5 shrink-0"
                 :style="{ color: moduleColor(m.id) }"
               />
               {{ moduleTitle(m.id) }}
-            </button>
-          </div>
-
-          <component
-            :is="activeSection"
-            v-if="activeSection"
-            :baseURL="baseURL"
-            :indexURL="indexURL"
-            :registryURL="registryURL"
-            :display-host="displayHost"
-            :trusted-host="trustedHost"
-            :copied="copied"
-            @copy="copyText"
-          />
-        </template>
-
-        <p
-          v-if="disabledModules.length"
-          class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted"
-        >
-          <span>{{ t('guide.disabled') }}：</span>
-          <span
-            v-for="m in disabledModules"
-            :key="m.id"
-            class="inline-flex items-center gap-1 opacity-70"
-          >
-            <ModuleIcon
-              v-if="moduleIcon(m.id)"
-              :name="moduleIcon(m.id)"
-              class="h-3.5 w-3.5 shrink-0"
-              :style="{ color: moduleColor(m.id) }"
-            />
-            {{ moduleTitle(m.id) }}
-          </span>
-        </p>
+            </span>
+          </p>
+        </section>
       </template>
     </div>
   </div>

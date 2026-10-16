@@ -42,7 +42,7 @@ export default {
   },
   nav: {
     overview: '总览',
-    dashboard: '仪表盘',
+    dashboard: '控制台',
     access: '近期访问',
     workspace: '工作区',
     pypi: 'PyPI',
@@ -75,8 +75,7 @@ export default {
   guide: {
     title: '使用说明',
     tagline: '内网下载缓存中心',
-    addresses: '下载服务地址',
-    addressesHint: '根据当前访问的主机名与下载端口自动生成（Docker 端口映射下也适用）。',
+    setup: '模块接入',
     pipOnce: '单次安装',
     pipConfig: 'pip 全局配置',
     uvOnce: 'uv 单次安装',
@@ -92,23 +91,15 @@ export default {
     copied: '已复制',
     noModule: '当前没有启用的模块。',
     disabled: '未启用',
-    pypiHint: '将 pip / uv 的索引指向本机下载服务。',
-    npmHint:
-      '将 npm / pnpm / yarn 的 registry 指向本机「下载口」（默认 18081），不是管理 UI 口（18082）。首次未命中会回源国内 npmmirror，偏慢或超时时可在配置里把 npm 上游改为 https://registry.npmjs.org 并配置出站代理。Yarn/pnpm 经 Corepack 安装时建议设置 COREPACK_NPM_REGISTRY；若 /yarn/... 特殊路径 404，可改用 npm i -g yarn。',
-    dockerHint:
-      '将 Docker daemon 的 registry-mirrors 指向本机下载服务（只读 pull-through）。非公开/未覆盖仓库可能 401；失败时客户端仍可能回落 Docker Hub 并超时。',
     dockerDaemon: '/etc/docker/daemon.json',
-    goproxyHint: '将 GOPROXY 指向本机下载服务（只读 module proxy，含 sumdb 代理）。',
     goproxyGlobal: '全局（go env -w）',
     goproxyLocal: '局部（当前终端 / 单次命令）',
-    huggingfaceHint: '将 HF_ENDPOINT 指向本机下载服务（公开模型/数据集只读缓存；可选服务端 Token 拉取 gated）。',
     huggingfaceEnv: '设置 HF_ENDPOINT',
-    mavenHint: '将 Maven / Gradle 仓库 URL 指向本机下载服务（Maven2 布局只读缓存）。',
     mavenSettings: 'Maven settings.xml（mirror）',
     mavenGradle: 'Gradle repositories',
   },
   dashboard: {
-    title: '仪表盘',
+    title: '控制台',
     subtitle: '流量、缓存与调度总览',
     moduleEntry: '进入 PyPI 工作台',
     pull: 'Pull',
