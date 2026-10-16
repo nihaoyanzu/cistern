@@ -304,6 +304,8 @@ export default {
     loadedCount: 'Loaded {n}',
     indexUnavailable: 'Index unavailable',
     localMark: '✓ = locally cached',
+    localBrowseHint: 'Empty query lists locally cached packages; type to search the full catalog.',
+    localCachedCount: '{n} local packages',
     searchFailed: 'Search failed',
     loadDetailFailed: 'Failed to load package detail',
     prefetchVersion: 'Prefetch this version',

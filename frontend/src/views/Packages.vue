@@ -75,6 +75,10 @@ const catalogHint = computed(() => {
     return t('packages.updating') + ` ${catalogSize.value}`
   }
   if (catalogRefreshing.value) return t('packages.indexPulling')
+  // 无关键字时 total 是本地缓存包数；有关键字时 catalog_size 是全站目录规模
+  if (!q.value.trim() && matchTotal.value > 0) {
+    return t('packages.localCachedCount', { n: matchTotal.value })
+  }
   if (catalogReady.value && catalogSize.value > 0) return t('packages.packagesCount', { n: catalogSize.value })
   if (catalogError.value) return t('packages.indexUnavailable')
   return ''
@@ -101,7 +105,7 @@ const emptyTitle = computed(() => {
   }
   if (!catalogReady.value && catalogRefreshing.value) return t('packages.indexPreparing')
   if (q.value.trim()) return t('packages.noMatch')
-  return t('packages.inputName')
+  return t('packages.localEmpty')
 })
 
 const emptyDesc = computed(() => {
@@ -115,7 +119,7 @@ const emptyDesc = computed(() => {
   }
   if (catalogError.value) return catalogError.value
   if (q.value.trim()) return ''
-  return t('packages.localMark')
+  return t('packages.localBrowseHint')
 })
 
 function applyCatalogMeta(res: {

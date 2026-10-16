@@ -241,10 +241,18 @@ func (s *Server) listLocalPlatformPackages(platform, q string, page, pageSize in
 		isIndex := e.Kind == "index" || typ == "index"
 		if isIndex {
 			a.sum.HasIndex = true
+			// Docker manifest 的 reference 即 tag/digest；其它平台 index 不计版本
+			if platform == "docker" && ver != "" {
+				a.versionSet[ver] = struct{}{}
+			}
 			continue
 		}
 		a.sum.FileCount++
 		a.sum.TotalSize += e.Size
+		// Docker blob 层的 digest 不是镜像版本
+		if platform == "docker" && (typ == "blob" || strings.HasPrefix(ver, "sha256:")) {
+			continue
+		}
 		if ver != "" {
 			a.versionSet[ver] = struct{}{}
 		}
@@ -280,8 +288,7 @@ func (s *Server) listLocalPlatformPackages(platform, q string, page, pageSize in
 		for v := range a.versionSet {
 			vers = append(vers, v)
 		}
-		sort.Strings(vers)
-		a.sum.Versions = vers
+		a.sum.Versions = finalizeLocalVersions(platform, vers)
 		out = append(out, a.sum)
 	}
 	return out, total
@@ -306,9 +313,12 @@ func (s *Server) getLocalPlatformPackage(platform, name string) map[string]any {
 		isIndex := e.Kind == "index" || typ == "index"
 		if isIndex {
 			hasIndex = true
+			if platform == "docker" && ver != "" {
+				versionSet[ver] = struct{}{}
+			}
 		} else {
 			packageCount++
-			if ver != "" {
+			if ver != "" && !(platform == "docker" && (typ == "blob" || strings.HasPrefix(ver, "sha256:"))) {
 				versionSet[ver] = struct{}{}
 			}
 		}
@@ -333,7 +343,7 @@ func (s *Server) getLocalPlatformPackage(platform, name string) map[string]any {
 	for v := range versionSet {
 		versions = append(versions, v)
 	}
-	sort.Strings(versions)
+	versions = finalizeLocalVersions(platform, versions)
 	sort.Slice(localFiles, func(i, j int) bool {
 		if localFiles[i].Version == localFiles[j].Version {
 			return localFiles[i].Filename < localFiles[j].Filename
@@ -362,4 +372,27 @@ func localNameEqual(platform, a, b string) bool {
 		return pypihandler.NormalizeName(a) == pypihandler.NormalizeName(b)
 	}
 	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+// finalizeLocalVersions Docker：有 tag 时不把 digest 当版本（同内容常被 tag+digest 各缓存一份）；仅 digest 拉取时才保留。
+func finalizeLocalVersions(platform string, vers []string) []string {
+	if platform != "docker" {
+		sort.Strings(vers)
+		return vers
+	}
+	tags := make([]string, 0, len(vers))
+	digests := make([]string, 0, len(vers))
+	for _, v := range vers {
+		if strings.HasPrefix(v, "sha256:") {
+			digests = append(digests, v)
+		} else if v != "" {
+			tags = append(tags, v)
+		}
+	}
+	if len(tags) > 0 {
+		sort.Strings(tags)
+		return tags
+	}
+	sort.Strings(digests)
+	return digests
 }

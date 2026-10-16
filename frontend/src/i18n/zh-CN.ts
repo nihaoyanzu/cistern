@@ -306,6 +306,8 @@ export default {
     loadedCount: '已载入 {n}',
     indexUnavailable: '索引不可用',
     localMark: '✓ = 本地已有发行文件',
+    localBrowseHint: '未输入时列出本地已缓存包；输入关键字可检索全站目录。',
+    localCachedCount: '本地 {n} 包',
     searchFailed: '搜索失败',
     loadDetailFailed: '加载包详情失败',
     prefetchVersion: '预取此版本',

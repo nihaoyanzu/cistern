@@ -74,12 +74,18 @@ func (s *Server) listPackages(w http.ResponseWriter, r *http.Request) {
 
 	meta := s.catalogMetaJSON()
 	meta["platform"] = "pypi"
-	meta["mode"] = "catalog"
 	meta["page"] = page
 	meta["page_size"] = pageSize
+	// 无关键字：与 docker 等一致，直接列本地已缓存包；有关键字才走全站目录检索
 	if q == "" {
-		meta["packages"] = []packageSummary{}
-		meta["total"] = 0
+		out, total := s.listLocalPlatformPackages("pypi", "", page, pageSize)
+		meta["mode"] = "local"
+		meta["packages"] = out
+		meta["total"] = total
+		meta["catalog_size"] = total
+		meta["catalog_ready"] = true
+		meta["catalog_refreshing"] = false
+		meta["catalog_error"] = ""
 		writeJSON(w, http.StatusOK, meta)
 		return
 	}
@@ -94,6 +100,7 @@ func (s *Server) listPackages(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, packageSummary{Name: name, Cached: false})
 	}
+	meta["mode"] = "catalog"
 	meta["packages"] = out
 	meta["total"] = matchTotal
 	meta["catalog_size"] = catalogSize
