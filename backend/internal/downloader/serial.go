@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -270,10 +271,11 @@ func (e *Engine) downloadSerialOnce(ctx context.Context, pl *ratelimit.PlatformL
 	}
 	repoCommit, _, _ := HubFileMetaFrom(ctx).snapshot()
 	entry, err := e.cache.Put(opt.CacheKey, tmp, ct, opt.TTLSeconds, cache.Meta{
-		SourceURL:  opt.metaSource(),
-		Kind:       opt.metaKind(),
-		Digest:     opt.ExpectedSHA256,
-		RepoCommit: repoCommit,
+		SourceURL:     opt.metaSource(),
+		Kind:          opt.metaKind(),
+		Digest:        opt.ExpectedSHA256,
+		DigestTrusted: strings.TrimSpace(opt.ExpectedSHA256) != "", // verifyAndRemember 已校验
+		RepoCommit:    repoCommit,
 	})
 	if err != nil {
 		return nil, err

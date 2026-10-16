@@ -22,19 +22,24 @@ const hitRateStr = computed(() => {
   const c = stats.value?.cache
   return hitRate(Number(c?.hits ?? 0), Number(c?.misses ?? 0))
 })
-const capacityCenter = computed(() => {
-  const used = Number(stats.value?.cache?.total_size ?? 0)
-  const max = Number(stats.value?.cache?.max_size ?? 0)
-  if (!max) return '—'
-  return `${Math.min(100, (used / max) * 100).toFixed(0)}%`
-})
-
-const quotaLeft = computed(() => {
-  const used = Number(stats.value?.cache?.total_size ?? 0)
-  const max = Number(stats.value?.cache?.max_size ?? 0)
-  if (!max) return null
-  return Math.max(0, max - used)
-})
+	const cacheUsedBytes = computed(() => {
+	  const c = stats.value?.cache
+	  return Number(c?.total_size ?? 0) + Number(c?.pending_size ?? 0)
+	})
+	
+	const capacityCenter = computed(() => {
+	  const used = cacheUsedBytes.value
+	  const max = Number(stats.value?.cache?.max_size ?? 0)
+	  if (!max) return '—'
+	  return `${Math.min(100, (used / max) * 100).toFixed(0)}%`
+	})
+	
+	const quotaLeft = computed(() => {
+	  const used = cacheUsedBytes.value
+	  const max = Number(stats.value?.cache?.max_size ?? 0)
+	  if (!max) return null
+	  return Math.max(0, max - used)
+	})
 
 const cacheSlices = computed(() => {
   const by = stats.value?.cache?.by_platform || {}
@@ -136,7 +141,7 @@ function platformLabel(id: string) {
           </div>
           <div>
             <div class="text-[0.65rem] uppercase tracking-wide text-muted">{{ t('dashboard.usage') }}</div>
-            <div class="mt-0.5 font-mono text-sm tabular-nums text-fg">{{ fmtBytes(stats.cache?.total_size ?? 0) }}</div>
+            <div class="mt-0.5 font-mono text-sm tabular-nums text-fg">{{ fmtBytes(cacheUsedBytes) }}</div>
           </div>
           <div>
             <div class="text-[0.65rem] uppercase tracking-wide text-muted">{{ t('dashboard.quotaLeft') }}</div>

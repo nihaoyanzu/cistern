@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -403,11 +404,12 @@ func (e *Engine) downloadOnce(ctx context.Context, pl *ratelimit.PlatformLimiter
 
 	repoCommit, _, _ := HubFileMetaFrom(ctx).snapshot()
 	entry, err := e.cache.Put(opt.CacheKey, tmp, ct, opt.TTLSeconds, cache.Meta{
-		SourceURL:    opt.metaSource(),
-		Kind:         opt.metaKind(),
-		Digest:       opt.ExpectedSHA256,
-		UpstreamETag: opt.IdentityETag,
-		RepoCommit:   repoCommit,
+		SourceURL:     opt.metaSource(),
+		Kind:          opt.metaKind(),
+		Digest:        opt.ExpectedSHA256,
+		DigestTrusted: strings.TrimSpace(opt.ExpectedSHA256) != "", // verifyAndRemember 已校验
+		UpstreamETag:  opt.IdentityETag,
+		RepoCommit:    repoCommit,
 	})
 	if err != nil {
 		return nil, err

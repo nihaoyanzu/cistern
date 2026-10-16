@@ -59,7 +59,8 @@ func NormalizeETag(etag string) string {
 	return strings.TrimSpace(etag)
 }
 
-// BlobCacheKeyFromETag 若有内容寻址 ETag，优先用 blob 键。
+// BlobCacheKeyFromETag 由内容寻址 ETag 生成 blob 键（诊断/兼容用）。
+// 制品缓存键统一走 PackageCacheIdentity 的 hf:pkg:…，勿再按请求头切到本键。
 func BlobCacheKeyFromETag(etag string) string {
 	etag = NormalizeETag(etag)
 	if etag == "" {

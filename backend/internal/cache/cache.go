@@ -53,11 +53,15 @@ type Meta struct {
 	Digest       string
 	UpstreamETag string // 上游响应 ETag，用于条件请求续期
 	RepoCommit   string // HF X-Repo-Commit
+	// DigestTrusted 为 true 时表示调用方已校验 Digest（如流式边下边 hash），
+	// Put 对已是 64 位 hex 的摘要不再整文件重读（大文件入库关键路径）。
+	DigestTrusted bool
 }
 
 type Stats struct {
 	Entries          int              `json:"entries"`
 	TotalSize        int64            `json:"total_size"`
+	PendingSize      int64            `json:"pending_size,omitempty"` // 在飞 tmp_/staging，尚未写入 meta
 	MaxSize          int64            `json:"max_size"`
 	Hits             int64            `json:"hits"`
 	Misses           int64            `json:"misses"`
@@ -669,12 +673,25 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 	// 入库摘要统一为 sha256 hex；npm SRI（sha512-/sha256-）先校验再换算，避免 Put 把 SRI 当 hex 比对失败。
 	digestHex := ""
 	if strings.TrimSpace(meta.Digest) != "" {
-		sum, err := verifyAndNormalizeDigest(srcPath, meta.Digest)
-		if err != nil {
-			_ = os.Remove(srcPath)
-			return nil, err
+		if meta.DigestTrusted {
+			if d := trustedDigestHex(meta.Digest); d != "" {
+				digestHex = d
+			} else {
+				sum, err := verifyAndNormalizeDigest(srcPath, meta.Digest)
+				if err != nil {
+					_ = os.Remove(srcPath)
+					return nil, err
+				}
+				digestHex = sum
+			}
+		} else {
+			sum, err := verifyAndNormalizeDigest(srcPath, meta.Digest)
+			if err != nil {
+				_ = os.Remove(srcPath)
+				return nil, err
+			}
+			digestHex = sum
 		}
-		digestHex = sum
 	}
 
 	plat := ClassifyPlatform(Entry{Key: key, SourceURL: meta.SourceURL, Kind: meta.Kind})
@@ -744,7 +761,8 @@ func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Met
 	if err := m.putMetaLocked(entry); err != nil {
 		return nil, err
 	}
-	_ = m.evictLocked()
+	// 刚写入的条目禁止被同一次淘汰删掉（单文件接近/超过配额时尤甚）
+	_ = m.evictLocked(entry.Key)
 	return entry, nil
 }
 
@@ -869,15 +887,19 @@ func (m *Manager) Stats() Stats {
 			return nil
 		})
 	})
+	// 大文件流式下载期间数据在 tmp_*，Put 完成前 meta 为空；计入 pending 避免统计「空白」
+	pending := m.pendingBytesUnlocked()
+	used := total + pending
 	ratio := 0.0
 	if m.maxSize > 0 {
-		ratio = float64(total) / float64(m.maxSize)
+		ratio = float64(used) / float64(m.maxSize)
 	}
 	hits, misses, byHit, byMiss := m.hit.snapshot()
 	free, ok := diskFreeBytes(m.dir)
 	return Stats{
 		Entries:          n,
 		TotalSize:        total,
+		PendingSize:      pending,
 		MaxSize:          m.maxSize,
 		Hits:             hits,
 		Misses:           misses,
@@ -890,6 +912,30 @@ func (m *Manager) Stats() Stats {
 		WaterCrit:        ratio >= 0.92,
 		ByPlatform:       byPlat,
 	}
+}
+
+// pendingBytesUnlocked 统计缓存根目录下在飞临时文件（调用方已持 m.mu 或可接受竞态）。
+func (m *Manager) pendingBytesUnlocked() int64 {
+	entries, err := os.ReadDir(m.dir)
+	if err != nil {
+		return 0
+	}
+	var n int64
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, "tmp_") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		n += info.Size()
+	}
+	return n
 }
 
 // AllowPrefetchWrite 磁盘/容量临界时拒绝预取写入
@@ -1087,10 +1133,16 @@ func (m *Manager) deleteLocked(key string) error {
 	})
 }
 
-func (m *Manager) evictLocked() error {
+func (m *Manager) evictLocked(protectKeys ...string) error {
+	protect := map[string]struct{}{}
+	for _, k := range protectKeys {
+		if k = strings.TrimSpace(k); k != "" {
+			protect[k] = struct{}{}
+		}
+	}
 	type item struct {
-		key  string
-		e    Entry
+		key string
+		e   Entry
 	}
 	var items []item
 	var total int64
@@ -1120,10 +1172,28 @@ func (m *Manager) evictLocked() error {
 		if total <= target {
 			break
 		}
+		if _, skip := protect[it.key]; skip {
+			continue
+		}
 		_ = m.deleteLocked(it.key)
 		total -= it.e.Size
 	}
 	return nil
+}
+
+// trustedDigestHex 仅接受已是裸 sha256 hex 的可信摘要；SRI 等仍走整文件校验。
+func trustedDigestHex(digest string) string {
+	d := strings.ToLower(strings.TrimSpace(digest))
+	if len(d) != 64 {
+		return ""
+	}
+	for i := 0; i < len(d); i++ {
+		c := d[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return ""
+		}
+	}
+	return d
 }
 
 func fileSHA256Hex(path string) (string, error) {
@@ -1189,4 +1259,3 @@ func verifyAndNormalizeDigest(path, expected string) (string, error) {
 		return strings.ToLower(sumHex), nil
 	}
 }
-

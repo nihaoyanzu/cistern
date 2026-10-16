@@ -3,6 +3,8 @@
 export interface CacheStats {
   entries: number
   total_size: number
+  /** 在飞临时文件（流式下载尚未 Put 入库） */
+  pending_size?: number
   max_size: number
   hits: number
   misses: number

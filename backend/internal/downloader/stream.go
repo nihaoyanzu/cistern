@@ -30,12 +30,32 @@ const (
 )
 
 const interactiveStreamMaxWall = 2 * time.Hour
+const interactiveStreamMaxWallHard = 48 * time.Hour
+
+func interactiveStreamWall(opt Options) time.Duration {
+	wall := interactiveStreamMaxWall
+	// 大文件按约 1MiB/s 估算超时（再留 2 倍余量），避免 HF GGUF 等超过 2h 被掐断后永不入库
+	if opt.HasKnownSize && opt.KnownSize > 1<<30 {
+		sec := opt.KnownSize / (1 << 20) * 2
+		if sec < 1 {
+			sec = 1
+		}
+		need := time.Duration(sec) * time.Second
+		if need > wall {
+			wall = need
+		}
+	}
+	if wall > interactiveStreamMaxWallHard {
+		wall = interactiveStreamMaxWallHard
+	}
+	return wall
+}
 
 func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWriter, opt Options) (*cache.Entry, string, int64, error) {
 	// 交互传体绝对上限，防止 Timeout=0 僵尸连接
 	if !opt.Prefetch {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, interactiveStreamMaxWall)
+		ctx, cancel = context.WithTimeout(ctx, interactiveStreamWall(opt))
 		defer cancel()
 	}
 	ctx, hubMeta := WithHubFileMeta(ctx)
@@ -292,6 +312,7 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 	cleanupTmp = false // 交由 Put 接管路径
 	opt.resolveExpectedDigest()
 	digest := opt.ExpectedSHA256
+	digestTrusted := false
 	if streamHash != nil && strings.TrimSpace(opt.ExpectedSHA256) != "" {
 		sum := hex.EncodeToString(streamHash.Sum(nil))
 		exp := strings.ToLower(strings.TrimSpace(opt.ExpectedSHA256))
@@ -307,34 +328,41 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 		if len(exp) == 64 {
 			digest = strings.ToLower(sum)
 			RememberDigest(opt.metaSource(), digest)
+			digestTrusted = true // 边下边 hash 已校验，勿再整文件重读
 		}
 	}
-	if err := verifyAndRemember(tmp, opt); err != nil {
-		// 已向客户端写出正文：非 docker 可降级无摘要入库；docker blob 禁止无 digest HIT
-		if headerWritten && opt.Platform != "docker" {
-			if e.log != nil {
-				e.log.Warn("stream digest verify failed after client write; caching without digest",
-					zap.String("url", opt.metaSource()),
-					zap.Error(err),
-				)
+	// 流式路径已用 streamHash 校验过时跳过 verifyAndRemember，避免大文件客户端下完后还卡数十分钟才 Put
+	if !digestTrusted {
+		if err := verifyAndRemember(tmp, opt); err != nil {
+			// 已向客户端写出正文：非 docker 可降级无摘要入库；docker blob 禁止无 digest HIT
+			if headerWritten && opt.Platform != "docker" {
+				if e.log != nil {
+					e.log.Warn("stream digest verify failed after client write; caching without digest",
+						zap.String("url", opt.metaSource()),
+						zap.Error(err),
+					)
+				}
+				digest = ""
+			} else {
+				if headerWritten {
+					abortHTTPBody(w)
+				}
+				_ = os.Remove(tmp)
+				cleanupTmp = true
+				return nil, ct, written, err
 			}
-			digest = ""
-		} else {
-			if headerWritten {
-				abortHTTPBody(w)
-			}
-			_ = os.Remove(tmp)
-			cleanupTmp = true
-			return nil, ct, written, err
+		} else if strings.TrimSpace(digest) != "" {
+			digestTrusted = true
 		}
 	}
 
 	repoCommit, _, _ := hubMeta.snapshot()
 	entry, err := e.cache.Put(opt.CacheKey, tmp, ct, opt.TTLSeconds, cache.Meta{
-		SourceURL:  opt.metaSource(),
-		Kind:       opt.metaKind(),
-		Digest:     digest,
-		RepoCommit: repoCommit,
+		SourceURL:     opt.metaSource(),
+		Kind:          opt.metaKind(),
+		Digest:        digest,
+		DigestTrusted: digestTrusted,
+		RepoCommit:    repoCommit,
 	})
 	if err != nil {
 		_ = os.Remove(tmp)
