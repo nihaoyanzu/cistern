@@ -257,10 +257,13 @@ async function save() {
         enabled: d.enabled,
         upstream: d.upstream,
         file_upstream: desc.fields.unifiedUpstream ? d.upstream : d.file_upstream,
-        // 统一上游且无第三字段时，metadata 与 upstream 同步（Go SumDB 等走同一源；空串亦由后端回退）
+        // 统一上游且无第三字段时，默认 metadata 与 upstream 同步（Go SumDB 等）；
+        // Docker 等 syncMetadataWithUpstream=false 时保存空串，由后端自动发现 Auth。
         metadata_upstream:
           desc.fields.unifiedUpstream && desc.fields.thirdField === 'none'
-            ? d.upstream
+            ? desc.fields.syncMetadataWithUpstream === false
+              ? ''
+              : d.upstream
             : d.metadata_upstream,
         download: prev?.download || {
           concurrency: 16,
@@ -327,7 +330,9 @@ function collectEnabledPlatformDrafts() {
       file_upstream: desc.fields.unifiedUpstream ? d.upstream : d.file_upstream,
       metadata_upstream:
         desc.fields.unifiedUpstream && desc.fields.thirdField === 'none'
-          ? d.upstream
+          ? desc.fields.syncMetadataWithUpstream === false
+            ? ''
+            : d.upstream
           : d.metadata_upstream,
     }
   }

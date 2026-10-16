@@ -37,6 +37,11 @@ export interface ModuleDescriptor {
     persistUpstreamToken: boolean
     /** true：界面只编一个上游，保存时 file_upstream 与 upstream 同步 */
     unifiedUpstream?: boolean
+    /**
+     * thirdField=none 且 unified 时，是否把 metadata_upstream 写成与 upstream 相同。
+     * Go/npm 等共用源为 true；Docker Auth 由 /v2/ 自动发现，应为 false（保存空串）。
+     */
+    syncMetadataWithUpstream?: boolean
   }
   labels: {
     upstreamKey: string
@@ -154,25 +159,24 @@ export const MODULES: ModuleDescriptor[] = [
     },
     defaults: {
       // 与后端首次安装种子一致（国内镜像）；表单留空保存后由后端回落官方源
+      // Auth 由 registry /v2/ WWW-Authenticate 自动发现，无需再配 metadata_upstream
       upstream: 'https://docker.m.daocloud.io',
       file_upstream: 'https://docker.m.daocloud.io',
-      metadata_upstream: 'https://auth.docker.io',
+      metadata_upstream: '',
     },
     fields: {
-      thirdField: 'auth',
+      thirdField: 'none',
       persistUpstreamToken: false,
       unifiedUpstream: true,
+      syncMetadataWithUpstream: false,
     },
     labels: {
       upstreamKey: 'platform.registryUpstream',
       fileUpstreamKey: 'platform.blobUpstream',
-      thirdFieldKey: 'platform.authUpstream',
     },
     hints: {
       upstreamHintKey: 'platform.dockerUpstreamHint',
       prefetchHintKey: 'platform.dockerPrefetchHint',
-      thirdFieldHintKey: 'platform.authUpstreamHint',
-      thirdFieldPlaceholder: 'https://auth.docker.io',
       prefetchPasteHintKey: 'prefetch.hintDocker',
       prefetchPlaceholderKey: 'prefetch.placeholderDocker',
     },

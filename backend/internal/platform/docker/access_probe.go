@@ -3,6 +3,7 @@ package docker
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -21,15 +22,17 @@ func (p *DockerPlatform) ProbeAccess(env platform.AccessProbeEnv) []platform.Acc
 	}
 	authBase := strings.TrimSpace(env.Cfg.MetadataUpstream)
 	if authBase == "" {
-		return []platform.AccessProbeCheck{{
-			Name: "manifest", OK: false, MS: 0,
-			Detail: "未配置 Auth 上游",
-		}}
+		authBase = defaultDockerAuth
 	}
 
 	const repo = "library/hello-world"
 	const tag = "latest"
 	tokens := dockerhandler.NewTokenSource(authBase, dockerhandler.AuthServiceFromRegistry(base), env.Client)
+	// 跟 /v2/ 的 WWW-Authenticate 学 realm；失败则回落配置/默认 auth.docker.io
+	if err := tokens.DiscoverRealm(env.Ctx, base); err != nil {
+		// 非致命：仍可用默认/配置的 Auth 换票（官方 Hub）
+		_ = err
+	}
 
 	t0 := time.Now()
 	body, manifestURL, err := fetchProbeManifest(env, tokens, base, repo, tag)
@@ -74,30 +77,47 @@ func (p *DockerPlatform) ProbeAccess(env platform.AccessProbeEnv) []platform.Acc
 
 func fetchProbeManifest(env platform.AccessProbeEnv, tokens *dockerhandler.TokenSource, registryBase, repo, reference string) ([]byte, string, error) {
 	u := dockerhandler.RegistryManifestURL(registryBase, repo, reference)
-	try := func(withAuth bool) (int, []byte, error) {
-		hdr := http.Header{}
-		hdr.Set("Accept", dockerhandler.DefaultManifestAccept())
+	try := func(withAuth bool) (int, http.Header, []byte, error) {
+		req, err := http.NewRequestWithContext(env.Ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		req.Header.Set("User-Agent", "mirrorhub-access-test/1.0")
+		req.Header.Set("Accept", dockerhandler.DefaultManifestAccept())
 		if withAuth {
 			if tok, err := tokens.Bearer(env.Ctx, repo); err == nil && tok != "" {
-				hdr.Set("Authorization", "Bearer "+tok)
+				req.Header.Set("Authorization", "Bearer "+tok)
 			}
 		}
-		return platform.ProbeGETHeaders(env.Ctx, env.Client, u, 2<<20, hdr)
+		resp, err := env.Client.Do(req)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		if err != nil {
+			return resp.StatusCode, resp.Header.Clone(), nil, err
+		}
+		return resp.StatusCode, resp.Header.Clone(), body, nil
 	}
 
-	status, body, err := try(true)
+	status, hdr, body, err := try(true)
 	if err != nil {
 		return nil, u, err
 	}
 	if status == http.StatusUnauthorized {
+		if ch, ok := dockerhandler.ParseBearerChallenge(hdr); ok {
+			tokens.ApplyChallenge(ch)
+		}
 		tokens.Invalidate(repo)
-		status, body, err = try(true)
+		status, hdr, body, err = try(true)
 		if err != nil {
 			return nil, u, err
 		}
+		_ = hdr
 	}
 	if status >= 400 {
-		status, body, err = try(false)
+		status, _, body, err = try(false)
 		if err != nil {
 			return nil, u, err
 		}

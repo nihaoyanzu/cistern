@@ -23,9 +23,14 @@ type DockerPlatform struct {
 	proxy  string
 }
 
+const defaultDockerAuth = "https://auth.docker.io"
+
 func (p *DockerPlatform) tokens(cfg config.Config) *dockerhandler.TokenSource {
 	pcfg := cfg.Platforms["docker"]
 	authBase := strings.TrimSpace(pcfg.MetadataUpstream)
+	if authBase == "" {
+		authBase = defaultDockerAuth
+	}
 	svc := dockerhandler.AuthServiceFromRegistry(pcfg.Upstream)
 	proxy := strings.TrimSpace(cfg.Server.UpstreamProxy)
 	p.authMu.Lock()
@@ -69,7 +74,12 @@ func (p *DockerPlatform) InjectUpstreamAuth(ctx context.Context, headers http.He
 	} else {
 		return nil
 	}
-	tok, err := p.tokens(cfg).Bearer(ctx, repo)
+	src := p.tokens(cfg)
+	// 优先跟 registry /v2/ 的 WWW-Authenticate 学 realm（官方 Hub、国内加速站皆可）
+	if upstream := strings.TrimSpace(cfg.Platforms["docker"].Upstream); upstream != "" {
+		_ = src.DiscoverRealm(ctx, upstream)
+	}
+	tok, err := src.Bearer(ctx, repo)
 	if err != nil {
 		return err
 	}

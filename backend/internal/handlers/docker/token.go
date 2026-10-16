@@ -12,13 +12,16 @@ import (
 	"time"
 )
 
-// TokenSource 匿名换票（auth.docker.io），按 repository scope 短时缓存。
+// TokenSource 匿名换票，按 repository scope 短时缓存。
+// authBase 为配置的 Auth 上游（如 auth.docker.io）；国内镜像常在 WWW-Authenticate
+// 中给出自有 realm（如 docker.1ms.run/openapi/v1/auth/token），DiscoverRealm 会覆盖。
 type TokenSource struct {
 	client   *http.Client
-	authBase string // https://auth.docker.io
-	service  string // registry.docker.io
+	authBase string // https://auth.docker.io 或镜像自有 auth 根
+	service  string // registry.docker.io / docker.1ms.run
 	mu       sync.Mutex
 	byScope  map[string]cachedToken
+	realmURL string // 完整换票 URL（含 path）；非空时优先于 authBase+"/token"
 }
 
 type cachedToken struct {
@@ -52,6 +55,63 @@ func (t *TokenSource) Invalidate(repo string) {
 	t.mu.Unlock()
 }
 
+// ApplyChallenge 采用上游 401 的 Bearer 质询（realm/service）。
+func (t *TokenSource) ApplyChallenge(ch BearerChallenge) {
+	if t == nil || strings.TrimSpace(ch.Realm) == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.realmURL = strings.TrimSpace(ch.Realm)
+	if s := strings.TrimSpace(ch.Service); s != "" {
+		t.service = s
+	}
+	// realm 变了，旧票作废
+	t.byScope = map[string]cachedToken{}
+}
+
+// DiscoverRealm 访问 registry /v2/，从 401 的 WWW-Authenticate 学习换票地址。
+// 国内加速站（如 docker.1ms.run）Auth 不在 auth.docker.io，必须走此发现。
+func (t *TokenSource) DiscoverRealm(ctx context.Context, registryBase string) error {
+	if t == nil {
+		return fmt.Errorf("nil token source")
+	}
+	base := strings.TrimRight(strings.TrimSpace(registryBase), "/")
+	if base == "" {
+		return fmt.Errorf("empty registry")
+	}
+	t.mu.Lock()
+	if t.realmURL != "" {
+		t.mu.Unlock()
+		return nil
+	}
+	t.mu.Unlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v2/", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+	ch, ok := ParseBearerChallenge(resp.Header)
+	if !ok {
+		return fmt.Errorf("registry %s: no Bearer challenge (HTTP %d)", base, resp.StatusCode)
+	}
+	t.ApplyChallenge(ch)
+	return nil
+}
+
+func (t *TokenSource) tokenEndpointLocked() string {
+	if u := strings.TrimSpace(t.realmURL); u != "" {
+		return u
+	}
+	return t.authBase + "/token"
+}
+
 // Bearer 返回 Authorization 头可用的 token 字符串（不含 Bearer 前缀）。
 func (t *TokenSource) Bearer(ctx context.Context, repo string) (string, error) {
 	repo = NormalizeRepo(repo)
@@ -62,14 +122,16 @@ func (t *TokenSource) Bearer(ctx context.Context, repo string) (string, error) {
 		t.mu.Unlock()
 		return tok, nil
 	}
+	endpoint := t.tokenEndpointLocked()
+	service := t.service
 	t.mu.Unlock()
 
-	u, err := url.Parse(t.authBase + "/token")
+	u, err := url.Parse(endpoint)
 	if err != nil {
 		return "", err
 	}
 	q := u.Query()
-	q.Set("service", t.service)
+	q.Set("service", service)
 	q.Set("scope", scope)
 	u.RawQuery = q.Encode()
 
