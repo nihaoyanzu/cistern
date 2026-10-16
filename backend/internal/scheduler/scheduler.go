@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,8 +70,14 @@ type TaskInfo struct {
 // 交互空隙短于此时长不恢复预取，避免 pip 索引/包请求间隙把 PrefetchPaused 抖开又抖上。
 const prefetchResumeDelay = 3 * time.Second
 
-// 完成态任务保留时长，超时从队列剔除，避免无界增长。
+// 成功/已取消任务保留时长，超时从队列剔除。
 const finishedTaskTTL = 10 * time.Minute
+
+// 失败任务保留更久，便于查看原因；超时或超量时淘汰最旧条目。
+const (
+	errorTaskTTL   = 24 * time.Hour
+	errorTaskMaxN  = 200
+)
 
 type Scheduler struct {
 	mu           sync.Mutex
@@ -393,6 +400,7 @@ func (s *Scheduler) platformP0Locked(platform string) int64 {
 }
 
 func (s *Scheduler) End(id string, err error) {
+	var failLog *TaskInfo
 	s.mu.Lock()
 	t, ok := s.tasks[id]
 	if ok {
@@ -416,6 +424,9 @@ func (s *Scheduler) End(id string, err error) {
 				t.Error = err.Error()
 				t.ErrorCode = extractErrorCode(err)
 				metrics.ErrorsTotal.WithLabelValues("task").Inc()
+				// 拷贝一份供锁外打日志
+				cp := *t
+				failLog = &cp
 			}
 		} else {
 			t.Status = "done"
@@ -426,20 +437,71 @@ func (s *Scheduler) End(id string, err error) {
 	s.pruneFinishedLocked(time.Now())
 	s.refreshTaskMetricsLocked()
 	s.mu.Unlock()
+	if failLog != nil && s.log != nil {
+		s.log.Warn("task failed",
+			zap.String("task_id", failLog.ID),
+			zap.String("platform", failLog.Platform),
+			zap.String("url", failLog.URL),
+			zap.String("error_code", failLog.ErrorCode),
+			zap.String("error", failLog.Error),
+		)
+	}
 	s.resumePrefetchIfIdle()
 }
 
-// pruneFinishedLocked 剔除过期完成态任务（须持 s.mu）。
+// pruneFinishedLocked 剔除过期成功/已取消，以及过旧或超量的失败任务（须持 s.mu）。
 func (s *Scheduler) pruneFinishedLocked(now time.Time) {
 	kept := s.order[:0]
+	var errorIDs []string
 	for _, id := range s.order {
 		t, ok := s.tasks[id]
 		if !ok || t == nil {
 			continue
 		}
-		if (t.Status == "done" || t.Status == "error" || t.Status == "cancelled") &&
-			!t.UpdatedAt.IsZero() && now.Sub(t.UpdatedAt) >= finishedTaskTTL {
-			s.releaseActiveLocked(t)
+		switch t.Status {
+		case "done", "cancelled":
+			if !t.UpdatedAt.IsZero() && now.Sub(t.UpdatedAt) >= finishedTaskTTL {
+				s.releaseActiveLocked(t)
+				delete(s.tasks, id)
+				continue
+			}
+		case "error":
+			if !t.UpdatedAt.IsZero() && now.Sub(t.UpdatedAt) >= errorTaskTTL {
+				s.releaseActiveLocked(t)
+				delete(s.tasks, id)
+				continue
+			}
+			errorIDs = append(errorIDs, id)
+		}
+		kept = append(kept, id)
+	}
+	s.order = kept
+
+	// 失败条数超上限：按 UpdatedAt 从旧到新淘汰
+	if len(errorIDs) <= errorTaskMaxN {
+		return
+	}
+	sort.Slice(errorIDs, func(i, j int) bool {
+		a, b := s.tasks[errorIDs[i]], s.tasks[errorIDs[j]]
+		if a == nil {
+			return true
+		}
+		if b == nil {
+			return false
+		}
+		return a.UpdatedAt.Before(b.UpdatedAt)
+	})
+	drop := len(errorIDs) - errorTaskMaxN
+	dropSet := make(map[string]struct{}, drop)
+	for i := 0; i < drop; i++ {
+		dropSet[errorIDs[i]] = struct{}{}
+	}
+	kept = s.order[:0]
+	for _, id := range s.order {
+		if _, ok := dropSet[id]; ok {
+			if t := s.tasks[id]; t != nil {
+				s.releaseActiveLocked(t)
+			}
 			delete(s.tasks, id)
 			continue
 		}
@@ -837,7 +899,7 @@ func (s *Scheduler) CancelAllActive(resume bool) int {
 	return s.CancelMatching(Match{}, resume)
 }
 
-// ClearFinishedMatching 清理已结束任务（done/error/cancelled）；platform 空=全部。
+// ClearFinishedMatching 清理已完成任务（done/cancelled），保留失败（error）；platform 空=全部。
 func (s *Scheduler) ClearFinishedMatching(platform string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -856,7 +918,7 @@ func (s *Scheduler) clearFinishedMatchingLocked(platform string) int {
 			kept = append(kept, id)
 			continue
 		}
-		if t.Status == "done" || t.Status == "error" || t.Status == "cancelled" {
+		if t.Status == "done" || t.Status == "cancelled" {
 			s.releaseActiveLocked(t) // 防御：异常路径未 End 时避免泄漏
 			delete(s.tasks, id)
 			n++
@@ -870,18 +932,18 @@ func (s *Scheduler) clearFinishedMatchingLocked(platform string) int {
 	return n
 }
 
-// ClearFinished 清理全部已结束任务。
+// ClearFinished 清理全部已完成任务（保留失败）。
 func (s *Scheduler) ClearFinished() int {
 	return s.ClearFinishedMatching("")
 }
 
-// PurgePrefetch 同一把锁内取消匹配预取（P1/P2）并清理已结束任务，再解锁 abort。
+// PurgePrefetch 同一把锁内取消匹配预取（P1/P2）并清理已完成（成功/已取消，保留失败），再解锁 abort。
 // 不触碰 P0；避免 Cancel+Clear 分两次调用时中间又入队的竞态。
 func (s *Scheduler) PurgePrefetch(platform string) (cancelled, cleared int) {
 	return s.purgeMatching(Match{Platform: platform, PrefetchOnly: true})
 }
 
-// PurgeAll 同一把锁内取消匹配平台全部活跃任务（含 P0）并清理已结束任务。
+// PurgeAll 同一把锁内取消匹配平台全部活跃任务（含 P0）并清理已完成（成功/已取消，保留失败）。
 func (s *Scheduler) PurgeAll(platform string) (cancelled, cleared int) {
 	return s.purgeMatching(Match{Platform: platform, PrefetchOnly: false})
 }

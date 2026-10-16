@@ -434,11 +434,11 @@ func (s *Server) getQueue(w http.ResponseWriter, r *http.Request) {
 			n := s.sched.ClearFinishedMatching(platform)
 			writeJSON(w, http.StatusOK, map[string]any{"cancelled": 0, "cleared": n})
 		case "prefetch":
-			// 仅取消 P1/P2 并清理已结束，交互 P0 不受影响
+			// 仅取消 P1/P2 并清理已完成（成功/已取消，保留失败）；交互 P0 不受影响
 			cancelled, cleared := s.prefetch.Purge(platform)
 			writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled, "cleared": cleared})
 		case "all":
-			// 取消全部活跃（含 P0）并清理已结束
+			// 取消全部活跃（含 P0）并清理已完成（成功/已取消，保留失败）
 			cancelled, cleared := s.prefetch.PurgeAll(platform)
 			writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled, "cleared": cleared})
 		default:

@@ -198,13 +198,15 @@ export default {
     cancelledManyOk: '已取消 {n} 项',
     cancelFailed: '取消失败',
     clearMenu: '清理',
-    clearFinished: '清理已结束',
+    clearFinished: '清理已完成',
     clearPrefetch: '清理预拉取',
     clearAll: '清理全部',
-    clearFinishedConfirm: '确认清理本范围内已结束（完成/失败/已取消）的任务？',
+    clearFinishedConfirm:
+      '确认清理本范围内已完成与已取消的任务？失败任务会保留，便于查看失败原因。',
     clearPrefetchConfirm:
-      '确认取消本范围内预拉取（P1/P2）并清理已结束任务？进行中的交互下载（P0）不受影响。',
-    clearAllConfirm: '确认取消本范围内全部任务（含交互下载 P0）并清理已结束？',
+      '确认取消本范围内预拉取（P1/P2）并清理已完成/已取消任务？失败任务会保留；进行中的交互下载（P0）不受影响。',
+    clearAllConfirm:
+      '确认取消本范围内全部任务（含交互下载 P0）并清理已完成/已取消？失败任务会保留。',
     clearedOk: '已清理 {n} 条',
     purgedPrefetchOk: '已取消预取 {cancelled} 项，清理 {cleared} 条',
     purgedOk: '已取消 {cancelled} 项，清理 {cleared} 条',

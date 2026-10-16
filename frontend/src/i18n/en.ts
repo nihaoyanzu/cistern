@@ -197,14 +197,15 @@ export default {
     cancelledManyOk: 'Cancelled {n} tasks',
     cancelFailed: 'Cancel failed',
     clearMenu: 'Clear',
-    clearFinished: 'Clear finished',
+    clearFinished: 'Clear completed',
     clearPrefetch: 'Clear prefetch',
     clearAll: 'Clear all',
-    clearFinishedConfirm: 'Clear finished tasks (done/error/cancelled) in this scope?',
+    clearFinishedConfirm:
+      'Clear completed and cancelled tasks in this scope? Failed tasks are kept so you can inspect errors.',
     clearPrefetchConfirm:
-      'Cancel prefetch (P1/P2) in this scope and clear finished tasks? Interactive downloads (P0) are not affected.',
+      'Cancel prefetch (P1/P2) in this scope and clear completed/cancelled? Failed tasks are kept; interactive downloads (P0) are not affected.',
     clearAllConfirm:
-      'Cancel all tasks in this scope (including interactive P0) and clear finished tasks?',
+      'Cancel all tasks in this scope (including interactive P0) and clear completed/cancelled? Failed tasks are kept.',
     clearedOk: 'Cleared {n} tasks',
     purgedPrefetchOk: 'Cancelled {cancelled} prefetch, cleared {cleared}',
     purgedOk: 'Cancelled {cancelled}, cleared {cleared}',
