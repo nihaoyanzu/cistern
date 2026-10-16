@@ -101,6 +101,7 @@ func (s *Server) Routes() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/login", s.login)
 		r.Get("/public/guide", s.getPublicGuide)
+		r.Get("/public/stats", s.getStats) // 说明首页只读仪表盘，无需登录
 		r.Group(func(r chi.Router) {
 			r.Use(s.authRequired)
 			r.Post("/logout", s.logout)

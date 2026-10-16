@@ -81,6 +81,7 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   getPublicGuide: () => request<PublicGuide>('/api/v1/public/guide'),
+  getPublicStats: () => request<SystemStats>('/api/v1/public/stats'),
   logout: () => request<{ ok: boolean }>('/api/v1/logout', { method: 'POST' }),
   me: () => request<MeResponse>('/api/v1/me'),
   changePassword: (oldPassword: string, newPassword: string) =>
