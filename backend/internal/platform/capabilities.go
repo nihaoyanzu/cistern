@@ -90,13 +90,18 @@ type TextDetectResult struct {
 	Kind    string // 如 npm_lock、docker_image，供审计
 }
 
-// TextDetector 管理面粘贴文本识别。
-type TextDetector interface {
-	// TextDetectPriority 越大越优先。
-	TextDetectPriority() int
-	LookLikePrefetchText(text string) bool
-	ParsePrefetchText(text string) (TextDetectResult, bool)
-}
+	// TextDetector 管理面粘贴文本识别。
+	type TextDetector interface {
+		// TextDetectPriority 越大越优先。
+		TextDetectPriority() int
+		LookLikePrefetchText(text string) bool
+		ParsePrefetchText(text string) (TextDetectResult, bool)
+	}
+
+	// PrefetchTextResolver 粘贴解析可回源（如 Maven POM 沿 parent/BOM 补全版本）。
+	type PrefetchTextResolver interface {
+		ResolvePrefetchText(env PrefetchExpandEnv, text string) (TextDetectResult, bool)
+	}
 
 // AccessProbeCheck 单条上游探测结果。
 type AccessProbeCheck struct {

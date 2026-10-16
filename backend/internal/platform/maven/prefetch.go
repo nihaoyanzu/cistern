@@ -95,7 +95,7 @@ func (p *MavenPlatform) ExpandPrefetchItem(env platform.PrefetchExpandEnv, item 
 			env.Log.Warn("maven pom cache put failed", zap.String("key", pkgKey), zap.Error(err))
 		}
 
-		deps, _ := mavenhandler.ParsePomDependencies(string(body))
+		deps, _ := mavenhandler.ResolvePomDependencies(string(body), pomFetchFromEnv(env))
 		for _, d := range deps {
 			scope := strings.ToLower(strings.TrimSpace(d.Scope))
 			pack := strings.ToLower(strings.TrimSpace(d.Packaging))

@@ -1,7 +1,6 @@
 package maven
 
 import (
-	"encoding/xml"
 	"regexp"
 	"strings"
 )
@@ -71,32 +70,45 @@ func LookLikeGAVList(text string) bool {
 	return lines > 0 && hits*2 >= lines
 }
 
-// LookLikeGradleProperties 粗判 gradle.properties：非空行均为 key=value，且至少一行的值是 GAV。
-// 仅含开关/版本号、没有任何 GAV 值的 properties 不会命中。
+// LookLikeGradleProperties 粗判 gradle.properties：非空行均为 key=value。
+// 含 GAV 值可预取；仅版本号/开关（如 Spring 的 xxxVersion=1.2.3）也会命中，以便给出明确错误而非「不符合格式」。
 func LookLikeGradleProperties(text string) bool {
 	s := strings.TrimSpace(text)
 	if s == "" || LookLikePom(s) || LookLikeBuildGradle(s) || LookLikeLibsVersionsTOML(s) {
 		return false
 	}
-	propLines, gavHits := 0, 0
+	propLines, gavHits, versionish := 0, 0, 0
 	for _, raw := range strings.Split(s, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || isPropertiesComment(line) {
 			continue
 		}
-		_, val, ok := splitPropertiesKV(line)
+		key, val, ok := splitPropertiesKV(line)
 		if !ok {
 			return false
 		}
 		propLines++
 		if _, ok := ParseCoordinate(val); ok {
 			gavHits++
+			continue
+		}
+		lowKey := strings.ToLower(key)
+		if strings.Contains(lowKey, "version") || looksLikeVersionToken(val) {
+			versionish++
 		}
 	}
-	return propLines > 0 && gavHits > 0
+	if propLines == 0 {
+		return false
+	}
+	if gavHits > 0 {
+		return true
+	}
+	// 纯版本目录：至少一半行像版本属性，且行数不宜太少（避免误伤）
+	return versionish >= 3 && versionish*2 >= propLines
 }
 
 // ParseGradleProperties 从 gradle.properties 中提取值为 GAV 的条目；其它键跳过。
+// 若整份只有版本号而无任何 GAV，skipped[0] 为说明文案。
 func ParseGradleProperties(text string) (coords []Coordinate, skipped []string) {
 	seen := map[string]struct{}{}
 	for _, raw := range strings.Split(text, "\n") {
@@ -121,7 +133,33 @@ func ParseGradleProperties(text string) (coords []Coordinate, skipped []string) 
 		seen[key] = struct{}{}
 		coords = append(coords, c)
 	}
+	if len(coords) == 0 && len(skipped) > 0 {
+		msg := "gradle.properties 仅有版本号无法预取；请粘贴 pom.xml / build.gradle / libs.versions.toml，或 key=group:artifact:version"
+		skipped = append([]string{msg}, skipped...)
+	}
 	return coords, skipped
+}
+
+func looksLikeVersionToken(val string) bool {
+	val = strings.TrimSpace(val)
+	if val == "" || val == "true" || val == "false" {
+		return false
+	}
+	// 3.27.7 / 2.21.7 / 7.1.0-SNAPSHOT / 0.0.48
+	dots, digits := 0, 0
+	for i := 0; i < len(val); i++ {
+		c := val[i]
+		switch {
+		case c >= '0' && c <= '9':
+			digits++
+		case c == '.':
+			dots++
+		case c == '-' || c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'):
+		default:
+			return false
+		}
+	}
+	return digits >= 1 && (dots >= 1 || strings.Contains(strings.ToUpper(val), "SNAPSHOT"))
 }
 
 func isPropertiesComment(line string) bool {
@@ -234,10 +272,21 @@ func ParseGAVList(text string) (coords []Coordinate, skipped []string) {
 // pomXML 精简 POM 结构。
 // 故意不设 XMLName：若依等 POM 含 <name> 子元素，会与 xml.Name 字段冲突导致反序列化失败。
 type pomXML struct {
-	Packaging            string             `xml:"packaging"`
-	Properties           pomProperties      `xml:"properties"`
-	Dependencies         pomDependencies    `xml:"dependencies"`
-	DependencyManagement pomDepManagement   `xml:"dependencyManagement"`
+	GroupID              string           `xml:"groupId"`
+	ArtifactID           string           `xml:"artifactId"`
+	Version              string           `xml:"version"`
+	Packaging            string           `xml:"packaging"`
+	Parent               pomParent        `xml:"parent"`
+	Properties           pomProperties    `xml:"properties"`
+	Dependencies         pomDependencies  `xml:"dependencies"`
+	DependencyManagement pomDepManagement `xml:"dependencyManagement"`
+}
+
+type pomParent struct {
+	GroupID      string `xml:"groupId"`
+	ArtifactID   string `xml:"artifactId"`
+	Version      string `xml:"version"`
+	RelativePath string `xml:"relativePath"`
 }
 
 type pomProperties struct {
@@ -261,82 +310,11 @@ type pomDependency struct {
 	Type       string `xml:"type"`
 }
 
-// ParsePomDependencies 解析 pom.xml 的 <dependencies> 与 <dependencyManagement>。
+// ParsePomDependencies 解析 pom.xml 的 <dependencies> 与 <dependencyManagement>（本地、不回源）。
 // 适用于普通模块 POM，以及若依/Spring 一类仅 BOM import 的父 POM。
-// 会清洗 xmlns / 带前缀属性，并用 <properties> 多轮替换 ${name}。
+// Spring Boot 应用 POM 依赖无 version、靠 parent BOM 管理时，请用 ResolvePomDependencies。
 func ParsePomDependencies(text string) (coords []Coordinate, skipped []string) {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil, nil
-	}
-	text = sanitizePomXML(text)
-	var pom pomXML
-	if err := xml.Unmarshal([]byte(text), &pom); err != nil {
-		// 回退：分别抠顶层 dependencies / dependencyManagement
-		if block := extractDependenciesInner(text, false); block != "" {
-			var deps pomDependencies
-			if err2 := xml.Unmarshal([]byte("<dependencies>"+block+"</dependencies>"), &deps); err2 == nil {
-				pom.Dependencies = deps
-			}
-		}
-		if block := extractDependenciesInner(text, true); block != "" {
-			var deps pomDependencies
-			if err2 := xml.Unmarshal([]byte("<dependencies>"+block+"</dependencies>"), &deps); err2 == nil {
-				pom.DependencyManagement.Dependencies = deps
-			}
-		}
-		if len(pom.Dependencies.Dependency) == 0 && len(pom.DependencyManagement.Dependencies.Dependency) == 0 {
-			return nil, []string{"pom parse error: " + err.Error()}
-		}
-	}
-
-	props := flattenProps(parsePropertyMap(pom.Properties.Raw))
-	seen := map[string]struct{}{}
-	appendDep := func(d pomDependency) {
-		g := resolveProps(strings.TrimSpace(d.GroupID), props)
-		a := resolveProps(strings.TrimSpace(d.ArtifactID), props)
-		v := resolveProps(strings.TrimSpace(d.Version), props)
-		if g == "" || a == "" || v == "" {
-			skipped = append(skipped, g+":"+a+":"+v)
-			return
-		}
-		if strings.Contains(v, "${") || strings.Contains(g, "${") || strings.Contains(a, "${") {
-			skipped = append(skipped, g+":"+a+":"+v)
-			return
-		}
-		scope := strings.ToLower(strings.TrimSpace(d.Scope))
-		if scope == "test" || scope == "provided" || scope == "system" {
-			skipped = append(skipped, g+":"+a+":"+v+" ("+scope+")")
-			return
-		}
-		if strings.EqualFold(strings.TrimSpace(d.Optional), "true") {
-			skipped = append(skipped, g+":"+a+":"+v+" (optional)")
-			return
-		}
-		pack := strings.ToLower(strings.TrimSpace(d.Type))
-		if pack == "" {
-			pack = "jar"
-		}
-		// BOM import：必须按 pom 拉取以便展开其 dependencyManagement
-		if scope == "import" || pack == "pom" {
-			pack = "pom"
-		}
-		c := Coordinate{GroupID: g, ArtifactID: a, Version: v, Scope: scope, Packaging: pack}
-		key := c.String()
-		if _, dup := seen[key]; dup {
-			return
-		}
-		seen[key] = struct{}{}
-		coords = append(coords, c)
-	}
-
-	for _, d := range pom.Dependencies.Dependency {
-		appendDep(d)
-	}
-	for _, d := range pom.DependencyManagement.Dependencies.Dependency {
-		appendDep(d)
-	}
-	return coords, skipped
+	return ResolvePomDependencies(text, nil)
 }
 
 // sanitizePomXML 剥默认/前缀命名空间声明，以及 xsi:schemaLocation 等带前缀属性。

@@ -254,9 +254,10 @@ export default {
       "One Hub repo per line: owner/repo; prefix datasets/ for datasets; use {'@'}rev for revision. Expands all files via the repo tree.",
     placeholderHuggingFace:
       "openai/clip-vit-base-patch32\ngoogle-bert/bert-base-uncased{'@'}main\ndatasets/squad\n# or https://huggingface.co/gpt2",
-    hintMaven: 'Paste pom.xml, build.gradle, libs.versions.toml, gradle.properties, or GAV lines',
+    hintMaven:
+      'Paste pom.xml (resolves parent/BOM versions), build.gradle, libs.versions.toml, or GAV lines; gradle.properties only if values are group:artifact:version',
     placeholderMaven:
-      'junit:junit:4.13.2\n# or pom.xml / build.gradle / libs.versions.toml / gradle.properties',
+      'junit:junit:4.13.2\n# or pom.xml / build.gradle / libs.versions.toml\n# gradle.properties: foo=org.example:lib:1.0.0',
     submitting: 'Submitting…',
     taskList: 'Prefetch Tasks',
     noTasks: 'No prefetch tasks',
@@ -354,7 +355,7 @@ export default {
     mavenUpstreamHint:
       'Maven2 repository upstream (shared by indexes and artifacts); leave empty for official Maven Central (repo1.maven.org). Read-only, no deploy.',
     mavenPrefetchHint:
-      'Paste pom.xml, gradle.properties (key=group:artifact:version), or GAV lines on Prefetch; expands pom+jar closure (skips test scope).',
+      'Paste pom.xml (incl. Spring Boot parent/BOM), gradle.properties (key=group:artifact:version), or GAV lines on Prefetch; expands pom+jar closure (skips test/provided).',
     mavenRepoUpstream: 'Repository Upstream',
     mavenFileUpstream: 'Artifact Upstream',
     registryUpstream: 'Registry Upstream',

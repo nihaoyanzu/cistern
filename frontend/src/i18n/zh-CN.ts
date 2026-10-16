@@ -256,9 +256,10 @@ export default {
       "每行一个 Hub 仓库：owner/repo；数据集加 datasets/ 前缀；修订用 {'@'}rev。将按 tree 展开仓库内全部文件。",
     placeholderHuggingFace:
       "openai/clip-vit-base-patch32\ngoogle-bert/bert-base-uncased{'@'}main\ndatasets/squad\n# 或 https://huggingface.co/gpt2",
-    hintMaven: '粘贴 pom.xml、build.gradle、libs.versions.toml、gradle.properties，或多行 GAV',
+    hintMaven:
+      '粘贴 pom.xml（支持 parent/BOM 补版本）、build.gradle、libs.versions.toml、多行 GAV；gradle.properties 仅当值为 group:artifact:version',
     placeholderMaven:
-      'junit:junit:4.13.2\n# 或 pom.xml / build.gradle / libs.versions.toml / gradle.properties',
+      'junit:junit:4.13.2\n# 或 pom.xml / build.gradle / libs.versions.toml\n# gradle.properties 示例：foo=org.example:lib:1.0.0',
     submitting: '提交中…',
     taskList: '预取任务',
     noTasks: '暂无预拉取',
@@ -355,7 +356,7 @@ export default {
     mavenUpstreamHint:
       'Maven2 仓库上游（索引与制品共用）；留空则用官方 Maven Central（repo1.maven.org）。只读缓存，不支持 deploy。',
     mavenPrefetchHint:
-      '在「预拉取」页粘贴 pom.xml、gradle.properties（key=group:artifact:version）或多行 GAV；将展开 pom+jar 依赖闭包（跳过 test）。',
+      '在「预拉取」页粘贴 pom.xml（含 Spring Boot parent/BOM）、gradle.properties（key=group:artifact:version）或多行 GAV；将展开 pom+jar 依赖闭包（跳过 test/provided）。',
     mavenRepoUpstream: '仓库上游',
     mavenFileUpstream: '制品上游',
     registryUpstream: 'Registry 上游',

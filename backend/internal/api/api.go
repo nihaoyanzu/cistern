@@ -482,6 +482,18 @@ func (s *Server) postPrefetch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.TrimSpace(body.Text) != "" {
+		expandEnv := platform.PrefetchExpandEnv{
+			Ctx:     r.Context(),
+			Cfg:     s.cfg.Get(),
+			Backend: s.prefetch,
+			Log:     s.log,
+		}
+		parseText := func(det platform.TextDetector) (platform.TextDetectResult, bool) {
+			if resolver, ok := det.(platform.PrefetchTextResolver); ok {
+				return resolver.ResolvePrefetchText(expandEnv, body.Text)
+			}
+			return det.ParsePrefetchText(body.Text)
+		}
 		if platHint != "" {
 			p := platform.ByName(platHint)
 			if p == nil {
@@ -497,9 +509,13 @@ func (s *Server) postPrefetch(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "粘贴内容不符合当前模块格式", http.StatusBadRequest)
 				return
 			}
-			res, ok := det.ParsePrefetchText(body.Text)
+			res, ok := parseText(det)
 			if !ok {
-				http.Error(w, "无法解析预取内容", http.StatusBadRequest)
+				msg := "无法解析预取内容"
+				if len(res.Skipped) > 0 && strings.TrimSpace(res.Skipped[0]) != "" {
+					msg = strings.TrimSpace(res.Skipped[0])
+				}
+				http.Error(w, msg, http.StatusBadRequest)
 				return
 			}
 			items = append(items, res.Items...)
@@ -509,7 +525,7 @@ func (s *Server) postPrefetch(w http.ResponseWriter, r *http.Request) {
 				if !det.LookLikePrefetchText(body.Text) {
 					continue
 				}
-				res, ok := det.ParsePrefetchText(body.Text)
+				res, ok := parseText(det)
 				if !ok || len(res.Items) == 0 {
 					// 误匹配且无有效条目时继续尝试下一检测器
 					continue
