@@ -32,7 +32,7 @@ const platformOptions = computed<TableFilterOption[]>(() =>
 )
 
 const statusFilter = computed({
-  get: () => (queueStore.status === 'all' ? '' : queueStore.status),
+  get: (): string => (queueStore.status === 'all' ? '' : queueStore.status),
   set: (v: string) => queueStore.setStatus((v || 'all') as QueueStatusFilter),
 })
 

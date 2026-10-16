@@ -63,12 +63,12 @@ const priorityOptions = computed<TableFilterOption[]>(() => [
 ])
 
 const statusFilter = computed({
-  get: () => (queueStore.status === 'all' ? '' : queueStore.status),
+  get: (): string => (queueStore.status === 'all' ? '' : queueStore.status),
   set: (v: string) => queueStore.setStatus((v || 'all') as QueueStatusFilter),
 })
 
 const priorityFilter = computed({
-  get: () => {
+  get: (): string => {
     const p = queueStore.priority
     return !p || p === 'P1,P2' ? '' : p
   },
