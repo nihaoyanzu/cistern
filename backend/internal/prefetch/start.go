@@ -24,24 +24,24 @@ func (s *Service) startOneAttempt(ctx context.Context, rawURL, platHint string, 
 		host = u.Host
 	}
 	gov := s.dl.HostGov()
-	if gov != nil && !gov.AllowPrefetch(host) {
-		// Host 承压：稍后再投
-		s.enqueueDelayed(rawURL, platHint, attempt)
+	if gov != nil && !gov.TryBeginPrefetch(host) {
+		// Host 文件槽满：入等待队列，不消耗 attempt
+		s.enqueueWaiting(rawURL, platHint, attempt)
 		return
 	}
 
 	s.mu.Lock()
 	if _, ok := s.cancel[rawURL]; ok {
 		s.mu.Unlock()
+		if gov != nil {
+			gov.EndPrefetch(host)
+			go s.drainWaiting(s.root)
+		}
 		return
 	}
 	cctx, cancel := context.WithCancel(ctx)
 	s.cancel[rawURL] = cancel
 	s.mu.Unlock()
-
-	if gov != nil {
-		gov.BeginPrefetch(host)
-	}
 
 	go func() {
 		defer func() {
@@ -52,6 +52,8 @@ func (s *Service) startOneAttempt(ctx context.Context, rawURL, platHint string, 
 			delete(s.cancel, rawURL)
 			s.mu.Unlock()
 			cancel()
+			// 释放文件槽后唤醒等待中的同批预取
+			go s.drainWaiting(s.root)
 		}()
 		cfg := s.cfg.Get()
 		plat, pcfg, platName := resolvePlatform(cfg, rawURL, platHint)

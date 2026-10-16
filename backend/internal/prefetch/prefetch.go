@@ -41,6 +41,7 @@ type Service struct {
 	cancel  map[string]context.CancelFunc
 	root    context.Context
 	delayed []delayedItem
+	waiting []waitingItem // Host 文件槽满时排队，不耗 attempt
 }
 
 func New(cfg *config.Manager, c *cache.Manager, dl *downloader.Engine, sched *scheduler.Scheduler, log *zap.Logger) *Service {
@@ -85,6 +86,7 @@ func (s *Service) loop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.drainDelayed(ctx)
+			s.drainWaiting(ctx)
 			manualTick++
 			if manualTick%8 == 0 { // ~16s
 				s.drainManual(ctx)
@@ -259,7 +261,7 @@ func (s *Service) CancelMatching(platform string) int {
 	n := s.sched.CancelMatching(scheduler.Match{Platform: platform, PrefetchOnly: true}, true)
 	s.abortDownloadsMatching(platform)
 	s.clearManualMatching(platform)
-	s.clearDelayedMatching(platform)
+	s.clearDeferredMatching(platform)
 	return n
 }
 
@@ -269,7 +271,7 @@ func (s *Service) Purge(platform string) (cancelled, cleared int) {
 	cancelled, cleared = s.sched.PurgePrefetch(platform)
 	s.abortDownloadsMatching(platform)
 	s.clearManualMatching(platform)
-	s.clearDelayedMatching(platform)
+	s.clearDeferredMatching(platform)
 	return cancelled, cleared
 }
 
@@ -279,7 +281,7 @@ func (s *Service) PurgeAll(platform string) (cancelled, cleared int) {
 	cancelled, cleared = s.sched.PurgeAll(platform)
 	s.abortDownloadsMatching(platform)
 	s.clearManualMatching(platform)
-	s.clearDelayedMatching(platform)
+	s.clearDeferredMatching(platform)
 	return cancelled, cleared
 }
 

@@ -433,6 +433,8 @@ func (s *Server) clearQueue(w http.ResponseWriter, r *http.Request) {
 	switch mode {
 	case "finished":
 		n := s.sched.ClearFinishedMatching(platform)
+		// 同步清延迟重试/文件槽等待，避免失败任务从列表消失后仍偷偷再下
+		s.prefetch.ClearDeferredMatching(platform)
 		writeJSON(w, http.StatusOK, map[string]any{"cancelled": 0, "cleared": n})
 	case "prefetch":
 		// 仅取消 P1/P2 并清理终态（成功/已取消/失败）；交互 P0 不受影响

@@ -7,26 +7,35 @@ import (
 )
 
 const (
-	govClimbInterval = 30 * time.Second
-	govClimbSuccess  = 8
-	govStallWindow   = 30 * time.Second
-	govStallDense    = 2
+	govClimbInterval     = 30 * time.Second
+	govClimbSuccess      = 8
+	govFileClimbInterval = 45 * time.Second
+	govFileClimbSuccess  = 12
+	govFileInitial       = 2
+	govFileCeiling       = 4
+	govPressureWindow    = 60 * time.Second
+	govStallWindow       = 30 * time.Second
+	govStallDense        = 2
 )
 
-// HostGovernor 按上游 Host 动态调度分片并发与预取投放软限。
+// HostGovernor 按上游 Host 动态调度分片并发与多文件预取并行。
 type HostGovernor struct {
 	mu    sync.Mutex
 	hosts map[string]*hostState
 }
 
 type hostState struct {
-	effective        int
-	ceiling          int
-	successStreak    int
-	lastClimb        time.Time
-	lastPressure     time.Time
-	stallTimes       []time.Time
-	inflightPrefetch int
+	effective         int // 单文件分片并发
+	ceiling           int
+	successStreak     int
+	lastClimb         time.Time
+	fileEffective     int // 同 Host 同时预取文件数
+	fileCeiling       int
+	fileSuccessStreak int
+	lastFileClimb     time.Time
+	lastPressure      time.Time
+	stallTimes        []time.Time
+	inflightPrefetch  int
 }
 
 func newHostGovernor() *HostGovernor {
@@ -47,10 +56,29 @@ func (g *HostGovernor) state(host string) *hostState {
 	}
 	st, ok := g.hosts[host]
 	if !ok {
-		st = &hostState{effective: 1, lastClimb: time.Now()}
+		now := time.Now()
+		st = &hostState{
+			effective:     1,
+			fileEffective: govFileInitial,
+			fileCeiling:   govFileCeiling,
+			lastClimb:     now,
+			lastFileClimb: now,
+		}
 		g.hosts[host] = st
 	}
 	return st
+}
+
+func (st *hostState) normalizeFileSlots() {
+	if st.fileCeiling < 1 {
+		st.fileCeiling = govFileCeiling
+	}
+	if st.fileEffective < 1 {
+		st.fileEffective = 1
+	}
+	if st.fileEffective > st.fileCeiling {
+		st.fileEffective = st.fileCeiling
+	}
 }
 
 // Limit 返回当前分片工人上限；ceiling 来自平台配置，effective 从 1 缓慢爬升。
@@ -87,9 +115,11 @@ func (g *HostGovernor) ObserveSuccess(host string) {
 	if st.ceiling <= 0 {
 		st.ceiling = 8
 	}
-	// 承压后短暂窗口内不爬升
-	if !st.lastPressure.IsZero() && time.Since(st.lastPressure) < govClimbInterval {
+	st.normalizeFileSlots()
+	// 承压窗口内不爬升分片与文件槽
+	if !st.lastPressure.IsZero() && time.Since(st.lastPressure) < govPressureWindow {
 		st.successStreak = 0
+		st.fileSuccessStreak = 0
 		return
 	}
 	st.successStreak++
@@ -100,6 +130,15 @@ func (g *HostGovernor) ObserveSuccess(host string) {
 		st.successStreak = 0
 		st.lastClimb = time.Now()
 	}
+
+	st.fileSuccessStreak++
+	fileTime := time.Since(st.lastFileClimb) >= govFileClimbInterval
+	fileCount := st.fileSuccessStreak >= govFileClimbSuccess
+	if (fileTime || fileCount) && st.fileEffective < st.fileCeiling {
+		st.fileEffective++
+		st.fileSuccessStreak = 0
+		st.lastFileClimb = time.Now()
+	}
 }
 
 func (g *HostGovernor) ObserveRateLimit(host string) {
@@ -109,10 +148,15 @@ func (g *HostGovernor) ObserveRateLimit(host string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	st := g.state(host)
+	st.normalizeFileSlots()
 	st.effective = max(1, st.effective/2)
+	st.fileEffective = max(1, st.fileEffective/2)
 	st.successStreak = 0
-	st.lastPressure = time.Now()
-	st.lastClimb = time.Now()
+	st.fileSuccessStreak = 0
+	now := time.Now()
+	st.lastPressure = now
+	st.lastClimb = now
+	st.lastFileClimb = now
 }
 
 func (g *HostGovernor) ObserveStall(host string) {
@@ -122,6 +166,7 @@ func (g *HostGovernor) ObserveStall(host string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	st := g.state(host)
+	st.normalizeFileSlots()
 	now := time.Now()
 	// 清理窗口外 stall
 	kept := st.stallTimes[:0]
@@ -133,50 +178,33 @@ func (g *HostGovernor) ObserveStall(host string) {
 	st.stallTimes = append(kept, now)
 	if len(st.stallTimes) >= govStallDense {
 		st.effective = max(1, st.effective/2)
+		st.fileEffective = max(1, st.fileEffective/2)
 		st.successStreak = 0
+		st.fileSuccessStreak = 0
 		st.lastPressure = now
 		st.lastClimb = now
+		st.lastFileClimb = now
 		st.stallTimes = nil
 	}
 }
 
-// pressured 是否处于限流/stall 承压窗口（约 30s）。
-func (g *HostGovernor) pressured(host string) bool {
+// TryBeginPrefetch 原子占文件槽；满则返回 false（调用方应入等待队列，不耗 attempt）。
+func (g *HostGovernor) TryBeginPrefetch(host string) bool {
 	if g == nil {
+		return true
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	st := g.state(host)
+	st.normalizeFileSlots()
+	if st.inflightPrefetch >= st.fileEffective {
 		return false
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	st := g.state(host)
-	return !st.lastPressure.IsZero() && time.Since(st.lastPressure) < govClimbInterval
-}
-
-// AllowPrefetch 承压时同 Host 新预取最多 1 路。
-func (g *HostGovernor) AllowPrefetch(host string) bool {
-	if g == nil {
-		return true
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	st := g.state(host)
-	pressured := !st.lastPressure.IsZero() && time.Since(st.lastPressure) < govClimbInterval
-	if !pressured {
-		return true
-	}
-	return st.inflightPrefetch < 1
-}
-
-// BeginPrefetch / EndPrefetch 跟踪同 Host 预取 inflight。
-func (g *HostGovernor) BeginPrefetch(host string) {
-	if g == nil {
-		return
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	st := g.state(host)
 	st.inflightPrefetch++
+	return true
 }
 
+// EndPrefetch 释放同 Host 预取文件槽。
 func (g *HostGovernor) EndPrefetch(host string) {
 	if g == nil {
 		return
@@ -189,7 +217,7 @@ func (g *HostGovernor) EndPrefetch(host string) {
 	}
 }
 
-// EffectiveForTest 仅测试/诊断。
+// EffectiveForTest 仅测试/诊断：返回分片 effective。
 func (g *HostGovernor) EffectiveForTest(host string) int {
 	if g == nil {
 		return 1
@@ -197,4 +225,16 @@ func (g *HostGovernor) EffectiveForTest(host string) int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.state(host).effective
+}
+
+// FileEffectiveForTest 仅测试/诊断：返回文件并行上限。
+func (g *HostGovernor) FileEffectiveForTest(host string) int {
+	if g == nil {
+		return govFileInitial
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	st := g.state(host)
+	st.normalizeFileSlots()
+	return st.fileEffective
 }
