@@ -659,6 +659,34 @@ func (m *Manager) RenewTTL(key string, ttlSeconds int) error {
 	return m.putMetaLocked(&entry)
 }
 
+// SetRepoCommit 回写 HF X-Repo-Commit（旧条目补头，不改文件）。
+func (m *Manager) SetRepoCommit(key, commit string) error {
+	commit = strings.TrimSpace(commit)
+	if commit == "" {
+		return fmt.Errorf("empty repo commit")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var entry Entry
+	err := m.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketMeta)
+		v := b.Get([]byte(key))
+		if v == nil {
+			return fmt.Errorf("miss")
+		}
+		return json.Unmarshal(v, &entry)
+	})
+	if err != nil {
+		return err
+	}
+	if entry.RepoCommit == commit {
+		return nil
+	}
+	entry.RepoCommit = commit
+	entry.LastAccess = time.Now()
+	return m.putMetaLocked(&entry)
+}
+
 func (m *Manager) Put(key, srcPath, contentType string, ttlSeconds int, meta Meta) (*Entry, error) {
 	if strings.TrimSpace(meta.SourceURL) == "" || strings.TrimSpace(meta.Kind) == "" {
 		return nil, fmt.Errorf("cache meta requires source_url and kind")

@@ -67,6 +67,12 @@ func (m *HubFileMeta) snapshot() (commit, etag, size string) {
 	return m.RepoCommit, m.LinkedEtag, m.LinkedSize
 }
 
+// GetRepoCommit 返回已捕获的 X-Repo-Commit（可空）。
+func (m *HubFileMeta) GetRepoCommit() string {
+	commit, _, _ := m.snapshot()
+	return commit
+}
+
 // CopyFrom 把 src 已捕获的 Hub 头合并进来（用于 HEAD 探测结果注入后续 GET/stream ctx）。
 func (m *HubFileMeta) CopyFrom(src *HubFileMeta) {
 	if m == nil || src == nil || m == src {

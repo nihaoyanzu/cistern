@@ -18,6 +18,14 @@ func (e *Engine) ServePackage(ctx context.Context, w http.ResponseWriter, opt Op
 	if entry, f, ok := e.cache.Open(opt.CacheKey, opt.Platform); ok {
 		notifyHit(opt)
 		defer f.Close()
+		// ctx 上已有 Hub commit 而条目缺头：补写后再回客户端（HF HIT 兼容）
+		if meta := HubFileMetaFrom(ctx); meta != nil && entry != nil {
+			if c := meta.GetRepoCommit(); c != "" && strings.TrimSpace(entry.RepoCommit) == "" {
+				if err := e.cache.SetRepoCommit(entry.Key, c); err == nil {
+					entry.RepoCommit = c
+				}
+			}
+		}
 		return serveCachedFile(w, entry, f, opt.Boost, opt.RangeHeader, "HIT")
 	}
 
@@ -81,6 +89,13 @@ func (e *Engine) servePackageOnce(ctx context.Context, w http.ResponseWriter, op
 		if entry, f, ok := e.cache.Open(opt.CacheKey, opt.Platform); ok {
 			notifyHit(opt)
 			defer f.Close()
+			if meta := HubFileMetaFrom(ctx); meta != nil && entry != nil {
+				if c := meta.GetRepoCommit(); c != "" && strings.TrimSpace(entry.RepoCommit) == "" {
+					if err := e.cache.SetRepoCommit(entry.Key, c); err == nil {
+						entry.RepoCommit = c
+					}
+				}
+			}
 			l, e2 := serveCachedFile(w, entry, f, opt.Boost, opt.RangeHeader, "HIT")
 			return l, true, e2
 		}

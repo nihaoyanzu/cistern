@@ -70,6 +70,9 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 
 	if err := injectAuth(); err != nil {
 		if entry, f, ok := s.cache.Open(cacheKey, m.Platform); ok {
+			if m.Platform == "huggingface" && strings.TrimSpace(entry.RepoCommit) == "" {
+				s.backfillHFRepoCommit(prepareCtx, entry, origURL, headers)
+			}
 			return s.servePackageHit(w, r, entry, f, boost, onHit, onProgress)
 		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -80,6 +83,13 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		if entry.Size <= 0 {
 			f.Close()
 			_ = s.cache.Delete(cacheKey)
+		} else if m.Platform == "huggingface" && strings.TrimSpace(entry.RepoCommit) == "" {
+			// 旧缓存无 Hub commit：先 HEAD 回填；仍失败则关 fd 走上游（文件保留），避免 hf 拒收无头 HIT
+			s.backfillHFRepoCommit(prepareCtx, entry, origURL, headers)
+			if strings.TrimSpace(entry.RepoCommit) != "" {
+				return s.servePackageHit(w, r, entry, f, boost, onHit, onProgress)
+			}
+			f.Close()
 		} else {
 			return s.servePackageHit(w, r, entry, f, boost, onHit, onProgress)
 		}
@@ -91,6 +101,17 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		headCtx, meta := downloader.WithHubFileMeta(headCtx)
 		size, ct, u, err := s.dl.Head(headCtx, origURL, headers)
 		return size, ct, u, meta, err
+	}
+	// 上游已拿到 commit 时顺带补写本地缺头条目，下次 HIT 即可带 X-Repo-Commit
+	persistHFRepoCommit := func(hubMeta *downloader.HubFileMeta) {
+		if m.Platform != "huggingface" || hubMeta == nil {
+			return
+		}
+		commit := hubMeta.GetRepoCommit()
+		if commit == "" {
+			return
+		}
+		_ = s.cache.SetRepoCommit(cacheKey, commit)
 	}
 	isAuthFail := func(err error) bool {
 		if err == nil {
@@ -132,6 +153,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		if ct == "" {
 			ct = "application/octet-stream"
 		}
+		persistHFRepoCommit(hubMeta)
 		w.Header().Set("Content-Type", ct)
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 		w.Header().Set("Accept-Ranges", "bytes")
@@ -187,6 +209,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 			size = hs
 			hasSize = true
 			headHubMeta = hubMeta
+			persistHFRepoCommit(hubMeta)
 			if finalURL != "" {
 				fetchURL = finalURL
 			}
@@ -336,6 +359,31 @@ func (w *writeTrack) Write(p []byte) (int, error) {
 func (w *writeTrack) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
+	}
+}
+
+// backfillHFRepoCommit 对缺 X-Repo-Commit 的本地条目向上游 HEAD 补头并落盘。
+func (s *Server) backfillHFRepoCommit(ctx context.Context, entry *cache.Entry, rawURL string, headers http.Header) {
+	if entry == nil || strings.TrimSpace(entry.RepoCommit) != "" {
+		return
+	}
+	if strings.TrimSpace(rawURL) == "" || s.dl == nil {
+		return
+	}
+	headCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	headCtx, meta := downloader.WithHubFileMeta(headCtx)
+	// CDN 超时等错误仍可能已在 Hub 302 上捕获到 X-Repo-Commit
+	_, _, _, _ = s.dl.Head(headCtx, rawURL, headers)
+	if meta == nil {
+		return
+	}
+	commit := meta.GetRepoCommit()
+	if commit == "" {
+		return
+	}
+	if err := s.cache.SetRepoCommit(entry.Key, commit); err == nil {
+		entry.RepoCommit = commit
 	}
 }
 
