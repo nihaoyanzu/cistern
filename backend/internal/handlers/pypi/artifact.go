@@ -37,20 +37,34 @@ func ParseArtifactURL(raw, kind string) ArtifactInfo {
 	return info
 }
 
-// ParseArtifactFilename 解析 wheel/sdist 文件名
+// ParseArtifactFilename 解析 wheel/sdist 文件名（含 .whl.metadata / .tar.gz.metadata）。
 func ParseArtifactFilename(filename string) ArtifactInfo {
 	base := path.Base(filename)
 	info := ArtifactInfo{Filename: base, Type: "other"}
-	if m := wheelTag.FindStringSubmatch(base); len(m) == 5 {
+	parseAs := base
+	isMeta := false
+	if len(parseAs) > 9 && strings.EqualFold(parseAs[len(parseAs)-9:], ".metadata") {
+		parseAs = parseAs[:len(parseAs)-9]
+		isMeta = true
+	}
+	if m := wheelTag.FindStringSubmatch(parseAs); len(m) == 5 {
 		info.Name = NormalizeName(m[1])
 		info.Version = m[2]
-		info.Type = "wheel"
+		if isMeta {
+			info.Type = "metadata"
+		} else {
+			info.Type = "wheel"
+		}
 		return info
 	}
-	if m := sdistTag.FindStringSubmatch(base); len(m) == 4 {
+	if m := sdistTag.FindStringSubmatch(parseAs); len(m) == 4 {
 		info.Name = NormalizeName(m[1])
 		info.Version = m[2]
-		info.Type = "sdist"
+		if isMeta {
+			info.Type = "metadata"
+		} else {
+			info.Type = "sdist"
+		}
 		return info
 	}
 	return info
@@ -77,15 +91,34 @@ func packageFromPackagesPath(raw string) string {
 	if err == nil {
 		p = u.Path
 	}
-	// /packages/hash/hash2/name/file
+	// 旧布局 /packages/.../name/file；新布局 /packages/ab/cd/<sha256>/file（倒数第二段是哈希，不可当包名）
 	parts := strings.Split(strings.Trim(p, "/"), "/")
 	for i, seg := range parts {
 		if seg == "packages" && i+3 < len(parts) {
-			// 倒数第二段常为包名目录
-			return NormalizeName(parts[len(parts)-2])
+			parent := parts[len(parts)-2]
+			if looksLikeContentHash(parent) {
+				return ""
+			}
+			return NormalizeName(parent)
 		}
 	}
 	return ""
+}
+
+// looksLikeContentHash 判断是否为 PyPI 内容寻址目录（长十六进制）。
+func looksLikeContentHash(s string) bool {
+	if len(s) < 16 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // IsPackageArtifactPath 判断是否为发行文件路径（拒绝镜像站 HTML 目录页）。

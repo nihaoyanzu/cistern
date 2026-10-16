@@ -70,10 +70,17 @@ func collectQuotedSpecs(body string, items, skipped *[]string, seen map[string]s
 }
 
 // extractQuotedStrings 按开闭引号提取（支持 "…'…'" 这类环境标记）。
+// 跳过 # 行注释，避免 Starlette's 等撇号被当成单引号字符串。
 func extractQuotedStrings(body string) []string {
 	var out []string
 	for i := 0; i < len(body); i++ {
 		c := body[i]
+		if c == '#' {
+			for i < len(body) && body[i] != '\n' && body[i] != '\r' {
+				i++
+			}
+			continue
+		}
 		if c != '"' && c != '\'' {
 			continue
 		}
@@ -272,6 +279,11 @@ func scanTOMLBracket(text string, openIdx int) (int, bool) {
 			continue
 		}
 		switch c {
+		case '#':
+			// 行注释：撇号等不得干扰括号/引号配对
+			for i+1 < len(text) && text[i+1] != '\n' && text[i+1] != '\r' {
+				i++
+			}
 		case '\'':
 			inSingle = true
 		case '"':

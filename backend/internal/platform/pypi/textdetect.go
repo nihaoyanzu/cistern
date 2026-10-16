@@ -12,13 +12,14 @@ const textDetectPriorityPyPI = 0
 
 func (p *PyPIPlatform) TextDetectPriority() int { return textDetectPriorityPyPI }
 
-// LookLikePrefetchText 认 requirements / PEP 508 / poetry.lock / uv.lock / Pipfile；异平台格式排除。
+// LookLikePrefetchText 认 requirements / PEP 508 / pyproject.toml / poetry.lock / uv.lock / Pipfile；异平台格式排除。
 func (p *PyPIPlatform) LookLikePrefetchText(text string) bool {
 	s := strings.TrimSpace(text)
 	if s == "" {
 		return false
 	}
-	if pypihandler.LookLikePoetryLock(s) || pypihandler.LookLikeUVLock(s) || pypihandler.LookLikePipfile(s) {
+	if pypihandler.LookLikePoetryLock(s) || pypihandler.LookLikeUVLock(s) ||
+		pypihandler.LookLikePipfile(s) || pypihandler.LookLikePyProject(s) {
 		return true
 	}
 	if looksLikeForeignPrefetchBlob(s) {
@@ -253,6 +254,13 @@ func (p *PyPIPlatform) ParsePrefetchText(text string) (platform.TextDetectResult
 			return platform.TextDetectResult{Skipped: skip, Kind: "pypi_pipfile"}, false
 		}
 		return platform.TextDetectResult{Items: parsed, Skipped: skip, Kind: "pypi_pipfile"}, true
+	}
+	if pypihandler.LookLikePyProject(s) {
+		parsed, skip := pypihandler.ParseDependencyText(s)
+		if len(parsed) == 0 {
+			return platform.TextDetectResult{Skipped: skip, Kind: "pypi_pyproject"}, false
+		}
+		return platform.TextDetectResult{Items: parsed, Skipped: skip, Kind: "pypi_pyproject"}, true
 	}
 	if !p.LookLikePrefetchText(text) {
 		return platform.TextDetectResult{}, false

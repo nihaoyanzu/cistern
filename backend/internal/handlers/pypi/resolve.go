@@ -412,14 +412,8 @@ func filenameFromURL(raw string) string {
 }
 
 func fileVersion(filename string) string {
-	base := path.Base(filename)
-	if m := wheelTag.FindStringSubmatch(base); len(m) == 5 {
-		return m[2]
-	}
-	if m := sdistTag.FindStringSubmatch(base); len(m) == 4 {
-		return m[2]
-	}
-	return ""
+	info := ParseArtifactFilename(filename)
+	return info.Version
 }
 
 // Version PEP 440 精简结构

@@ -40,6 +40,15 @@ func LookLikeUVLock(text string) bool {
 		strings.Contains(low, "wheels = [")
 }
 
+// LookLikePyProject 粗判 PEP 621 / Poetry 的 pyproject.toml。
+func LookLikePyProject(text string) bool {
+	s := strings.TrimSpace(text)
+	if s == "" || LookLikePoetryLock(s) || LookLikeUVLock(s) || LookLikePipfile(s) {
+		return false
+	}
+	return looksLikeTOMLDeps(s)
+}
+
 // LookLikePipfile 粗判 Pipfile（[packages] / [dev-packages]）。
 func LookLikePipfile(text string) bool {
 	s := strings.TrimSpace(text)
