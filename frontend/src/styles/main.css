@@ -514,4 +514,32 @@
     @apply flex w-full cursor-pointer px-3.5 py-2.5 text-left text-base text-muted transition
       hover:bg-panel-2 hover:text-fg;
   }
+
+  /* 无确定进度的滚动条（版本检测等） */
+  .ui-progress-indet {
+    position: relative;
+    height: 0.5rem;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--color-line);
+  }
+
+  .ui-progress-indet-bar {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 40%;
+    border-radius: 9999px;
+    background: var(--color-accent);
+    animation: ui-progress-indet 1.2s ease-in-out infinite;
+  }
+}
+
+@keyframes ui-progress-indet {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
 }

@@ -260,7 +260,10 @@ function onVersionClick() {
     showConfirmModal.value = true
     return
   }
-  // 一律等本次强制检测完成再弹窗，禁止先弹「已是最新」再改成「有新版本」
+  // 立刻弹窗；检测中显示无进度滚动条，完成后再切换到结果/确认
+  showConfirmModal.value = false
+  resultText.value = t('common.updateChecking')
+  showResultModal.value = true
   void checkUpdate(true).then(() => {
     if (applying.value) return
     const next = updateStatus.value
@@ -667,9 +670,16 @@ function goAccount() {
   <ModalDialog
     v-model:visible="showResultModal"
     :title="t('common.updateResultTitle')"
-    :description="resultText"
+    :description="updateLoading ? '' : resultText"
     hide-confirm
-  />
+  >
+    <div v-if="updateLoading" class="space-y-3">
+      <p class="text-sm text-muted">{{ t('common.updateChecking') }}</p>
+      <div class="ui-progress-indet" role="progressbar" aria-busy="true" :aria-label="t('common.updateChecking')">
+        <div class="ui-progress-indet-bar" />
+      </div>
+    </div>
+  </ModalDialog>
   <ModalDialog
     v-model:visible="showConfirmModal"
     :title="t('common.updateConfirmTitle')"

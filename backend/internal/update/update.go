@@ -11,7 +11,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -372,13 +371,9 @@ func (c *Checker) Apply(ctx context.Context) (err error) {
 		}
 	}
 
-	exe, err := os.Executable()
+	exe, err := reexec.Resolve()
 	if err != nil {
-		return fmt.Errorf("定位可执行文件失败: %w", err)
-	}
-	exe, err = filepath.EvalSymlinks(exe)
-	if err != nil {
-		return fmt.Errorf("解析可执行路径失败: %w", err)
+		return err
 	}
 
 	tmpPath = exe + ".new"
@@ -432,7 +427,8 @@ func (c *Checker) Apply(ctx context.Context) (err error) {
 		zap.String("exe", exe),
 	)
 	unlocked = true
-	err = reexec.Self()
+	// 必须 Exec 替换后的目标路径：此时 /proc/self/exe 常仍指向已删的 .bak
+	err = reexec.Path(exe)
 	unlocked = false
 	return fmt.Errorf("重启失败: %w", err)
 }
