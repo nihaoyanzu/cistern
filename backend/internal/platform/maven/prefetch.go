@@ -74,8 +74,10 @@ func (p *MavenPlatform) ExpandPrefetchItem(env platform.PrefetchExpandEnv, item 
 		if pack == "" {
 			pack = "jar"
 		}
-		if pack != "pom" {
-			addURL(mavenhandler.ArtifactURL(up, n.c.GroupID, n.c.ArtifactID, n.c.Version, pack))
+		if pack != "pom" &&
+			!mavenhandler.SkipPrefetchPackaging(pack) &&
+			!mavenhandler.SkipPrefetchClassifier(n.c.Classifier) {
+			addURL(mavenhandler.ArtifactURLWithClassifier(up, n.c.GroupID, n.c.ArtifactID, n.c.Version, pack, n.c.Classifier))
 		}
 
 		status, respHeader, body, getErr := env.Backend.ProxyBytes(env.Ctx, http.MethodGet, pomURL, nil, nil, "maven", true)
@@ -99,7 +101,10 @@ func (p *MavenPlatform) ExpandPrefetchItem(env platform.PrefetchExpandEnv, item 
 		for _, d := range deps {
 			scope := strings.ToLower(strings.TrimSpace(d.Scope))
 			pack := strings.ToLower(strings.TrimSpace(d.Packaging))
-			// 允许 import BOM / pom 包装；其余仅 compile/runtime/空 scope
+			// 允许 import BOM / pom 包装；其余仅 compile/runtime/空 scope；跳过 test-jar / sources 等
+			if mavenhandler.SkipPrefetchPackaging(pack) || mavenhandler.SkipPrefetchClassifier(d.Classifier) {
+				continue
+			}
 			if scope == "import" || pack == "pom" {
 				// ok
 			} else if scope != "" && scope != "compile" && scope != "runtime" {

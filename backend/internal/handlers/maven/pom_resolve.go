@@ -15,8 +15,17 @@ const (
 type PomFetch func(groupID, artifactID, version string) ([]byte, error)
 
 type managedCoord struct {
-	Version   string
-	Packaging string
+	Version    string
+	Packaging  string
+	Classifier string
+}
+
+// managedKey Maven DM 按 g:a:type:classifier 区分（同坐标可同时有 jar 与 test-jar）。
+func managedKey(groupID, artifactID, typ, classifier string) string {
+	if typ == "" {
+		typ = "jar"
+	}
+	return groupID + ":" + artifactID + ":" + typ + ":" + strings.TrimSpace(classifier)
 }
 
 // ResolvePomDependencies 解析 POM，并在提供 fetch 时沿 parent / import BOM 补全缺失版本。
@@ -94,28 +103,25 @@ func ResolvePomDependencies(text string, fetch PomFetch) (coords []Coordinate, s
 		(len(leaf.Dependencies.Dependency) == 0 && len(leaf.DependencyManagement.Dependencies.Dependency) > 0)
 
 	seen := map[string]struct{}{}
-	appendResolved := func(d pomDependency, fromManaged bool) {
+	appendResolved := func(d pomDependency) {
 		g := resolveProps(strings.TrimSpace(d.GroupID), props)
 		a := resolveProps(strings.TrimSpace(d.ArtifactID), props)
 		v := resolveProps(strings.TrimSpace(d.Version), props)
 		scope := strings.ToLower(strings.TrimSpace(d.Scope))
 		typ := strings.ToLower(strings.TrimSpace(d.Type))
+		cls := resolveProps(strings.TrimSpace(d.Classifier), props)
 		if typ == "" {
 			typ = "jar"
 		}
-		// import 仅用于补版本，不作为制品入队（除非 fromManaged 且 includeManaged 时已在 apply 中展开）
-		if scope == "import" || (typ == "pom" && scope == "import") {
-			if !fromManaged {
-				return
-			}
-			// DM 里的 import 条目本身不入队
+		// import 仅用于补版本，不作为制品入队
+		if scope == "import" {
 			return
 		}
 		if v == "" {
-			if m, ok := managed[g+":"+a]; ok {
+			if m, ok := managed[managedKey(g, a, typ, cls)]; ok {
 				v = m.Version
-				if typ == "jar" && m.Packaging != "" {
-					typ = m.Packaging
+				if cls == "" && m.Classifier != "" {
+					cls = m.Classifier
 				}
 			}
 		}
@@ -131,14 +137,19 @@ func ResolvePomDependencies(text string, fetch PomFetch) (coords []Coordinate, s
 			skipped = append(skipped, g+":"+a+":"+v+" ("+scope+")")
 			return
 		}
+		if SkipPrefetchPackaging(typ) || SkipPrefetchClassifier(cls) {
+			reason := typ
+			if SkipPrefetchClassifier(cls) {
+				reason = "classifier:" + cls
+			}
+			skipped = append(skipped, g+":"+a+":"+v+" ("+reason+")")
+			return
+		}
 		if strings.EqualFold(strings.TrimSpace(d.Optional), "true") {
 			skipped = append(skipped, g+":"+a+":"+v+" (optional)")
 			return
 		}
-		if scope == "import" || typ == "pom" {
-			typ = "pom"
-		}
-		c := Coordinate{GroupID: g, ArtifactID: a, Version: v, Scope: scope, Packaging: typ}
+		c := Coordinate{GroupID: g, ArtifactID: a, Version: v, Scope: scope, Packaging: typ, Classifier: cls}
 		key := c.String()
 		if _, dup := seen[key]; dup {
 			return
@@ -148,13 +159,13 @@ func ResolvePomDependencies(text string, fetch PomFetch) (coords []Coordinate, s
 	}
 
 	for _, d := range leaf.Dependencies.Dependency {
-		appendResolved(d, false)
+		appendResolved(d)
 	}
 	if includeManaged {
-		// 已展开 import 后的 managed 表 → 坐标；同时保留本层非 import DM（若尚未进表）
-		for ga, m := range managed {
-			parts := strings.SplitN(ga, ":", 2)
-			if len(parts) != 2 {
+		// 已展开 import 后的 managed 表 → 坐标（key = g:a:type:classifier）
+		for key, m := range managed {
+			parts := strings.SplitN(key, ":", 4)
+			if len(parts) != 4 {
 				continue
 			}
 			appendResolved(pomDependency{
@@ -162,7 +173,8 @@ func ResolvePomDependencies(text string, fetch PomFetch) (coords []Coordinate, s
 				ArtifactID: parts[1],
 				Version:    m.Version,
 				Type:       m.Packaging,
-			}, true)
+				Classifier: m.Classifier,
+			})
 		}
 	}
 	return coords, skipped
@@ -299,7 +311,7 @@ func applyDependencyManagement(
 			}
 			if fetch == nil {
 				// 无回源：保留 import@pom，供后续 Expand 拉取 BOM
-				managed[g+":"+a] = managedCoord{Version: v, Packaging: "pom"}
+				managed[managedKey(g, a, "pom", "")] = managedCoord{Version: v, Packaging: "pom"}
 				continue
 			}
 			if *importBudget <= 0 {
@@ -350,8 +362,8 @@ func applyDependencyManagement(
 		if typ == "" {
 			typ = "jar"
 		}
-		key := g + ":" + a
-		managed[key] = managedCoord{Version: v, Packaging: typ}
+		cls := resolveProps(strings.TrimSpace(d.Classifier), props)
+		managed[managedKey(g, a, typ, cls)] = managedCoord{Version: v, Packaging: typ, Classifier: cls}
 	}
 }
 

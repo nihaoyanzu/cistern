@@ -154,16 +154,77 @@ func CoordPath(groupID, artifactID, version string) string {
 	return "/" + path.Join(g, a, v)
 }
 
-// ArtifactURL 构造上游制品 URL（默认 packaging=jar 或 pom）。
-func ArtifactURL(upstream, groupID, artifactID, version, ext string) string {
-	ext = strings.TrimSpace(ext)
-	if ext == "" {
-		ext = "jar"
-	}
-	ext = strings.TrimPrefix(ext, ".")
+// ArtifactURL 构造上游制品 URL。packaging 为 Maven type（如 jar/pom/test-jar），不是裸扩展名。
+func ArtifactURL(upstream, groupID, artifactID, version, packaging string) string {
+	return ArtifactURLWithClassifier(upstream, groupID, artifactID, version, packaging, "")
+}
+
+// ArtifactURLWithClassifier 构造带 classifier 的制品 URL（如 tests → artifact-version-tests.jar）。
+func ArtifactURLWithClassifier(upstream, groupID, artifactID, version, packaging, classifier string) string {
+	ext, cls := NormalizePackaging(packaging, classifier)
 	prefix := CoordPath(groupID, artifactID, version)
-	name := strings.TrimSpace(artifactID) + "-" + strings.TrimSpace(version) + "." + ext
+	name := strings.TrimSpace(artifactID) + "-" + strings.TrimSpace(version)
+	if cls != "" {
+		name += "-" + cls
+	}
+	name += "." + ext
 	return TargetURL(upstream, prefix+"/"+name)
+}
+
+// NormalizePackaging 将 Maven <type> / packaging 映射为仓库文件扩展名与 classifier。
+// 例如 test-jar → (jar, tests)，不可写成 *.test-jar。
+func NormalizePackaging(packaging, classifier string) (ext, cls string) {
+	cls = strings.TrimSpace(classifier)
+	p := strings.ToLower(strings.TrimSpace(packaging))
+	switch p {
+	case "", "jar", "bundle", "maven-plugin", "ejb":
+		return "jar", cls
+	case "test-jar":
+		if cls == "" {
+			cls = "tests"
+		}
+		return "jar", cls
+	case "ejb-client":
+		if cls == "" {
+			cls = "client"
+		}
+		return "jar", cls
+	case "java-source":
+		if cls == "" {
+			cls = "sources"
+		}
+		return "jar", cls
+	case "javadoc":
+		if cls == "" {
+			cls = "javadoc"
+		}
+		return "jar", cls
+	case "pom":
+		return "pom", cls
+	default:
+		// war / ear / rar / aar / zip / tar.gz 等：type 即扩展名
+		return p, cls
+	}
+}
+
+// SkipPrefetchPackaging 预取时跳过的 type（测试包 / 源码 / javadoc，非运行时闭包所需）。
+func SkipPrefetchPackaging(packaging string) bool {
+	switch strings.ToLower(strings.TrimSpace(packaging)) {
+	case "test-jar", "java-source", "javadoc":
+		return true
+	default:
+		return false
+	}
+}
+
+// SkipPrefetchClassifier 预取时跳过的 classifier（POM 里 type=jar + classifier=tests/sources 等同 test-jar）。
+func SkipPrefetchClassifier(classifier string) bool {
+	switch strings.ToLower(strings.TrimSpace(classifier)) {
+	case "tests", "test", "sources", "javadoc":
+		return true
+	default:
+		return false
+	}
 }
 
 // IndexETag 由正文生成。

@@ -11,15 +11,23 @@ type Coordinate struct {
 	ArtifactID string
 	Version    string
 	Scope      string
-	Packaging  string // 默认 jar；pom 表示仅元数据（含 BOM import）
+	Packaging  string // 默认 jar；pom 表示仅元数据（含 BOM import）；可为 test-jar 等 Maven type
+	Classifier string // 如 tests / sources；与 Packaging 共同决定文件名
 }
 
-// String 返回 group:artifact:version；非 jar 包装时追加 @packaging（如 BOM 的 @pom）。
+// String 返回 group:artifact:version；非默认包装/分类器时追加 @type 或 @type:classifier。
 func (c Coordinate) String() string {
 	s := c.GroupID + ":" + c.ArtifactID + ":" + c.Version
 	pack := strings.ToLower(strings.TrimSpace(c.Packaging))
-	if pack != "" && pack != "jar" {
+	cls := strings.TrimSpace(c.Classifier)
+	if pack == "" {
+		pack = "jar"
+	}
+	if pack != "jar" || cls != "" {
 		s += "@" + pack
+		if cls != "" {
+			s += ":" + cls
+		}
 	}
 	return s
 }
@@ -227,9 +235,18 @@ func ParseCoordinate(raw string) (Coordinate, bool) {
 		raw = raw[:i]
 	}
 	pack := "jar"
+	cls := ""
 	if i := strings.LastIndex(raw, "@"); i > 0 {
-		pack = strings.ToLower(strings.TrimSpace(raw[i+1:]))
+		suffix := strings.ToLower(strings.TrimSpace(raw[i+1:]))
 		raw = raw[:i]
+		if suffix != "" {
+			if j := strings.IndexByte(suffix, ':'); j >= 0 {
+				pack = strings.TrimSpace(suffix[:j])
+				cls = strings.TrimSpace(suffix[j+1:])
+			} else {
+				pack = suffix
+			}
+		}
 		if pack == "" {
 			pack = "jar"
 		}
@@ -243,6 +260,7 @@ func ParseCoordinate(raw string) (Coordinate, bool) {
 		ArtifactID: m[2],
 		Version:    m[3],
 		Packaging:  pack,
+		Classifier: cls,
 	}, true
 }
 
@@ -308,6 +326,7 @@ type pomDependency struct {
 	Scope      string `xml:"scope"`
 	Optional   string `xml:"optional"`
 	Type       string `xml:"type"`
+	Classifier string `xml:"classifier"`
 }
 
 // ParsePomDependencies 解析 pom.xml 的 <dependencies> 与 <dependencyManagement>（本地、不回源）。
