@@ -72,9 +72,10 @@ jobs:
           tags: |
             # latest 只跟 release tag，避免与 main 并发推送后和版本号 digest 错位
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            # 完整 semver（v3.12.1 → 3.12.1）；不再打 {{major}}.{{minor}}，
+            # 否则发 patch 会把已有 3.12 标签挪到 3.12.1 的 digest 上造成「重叠」
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            # v1.2 不是完整 SemVer（缺 patch），仍发布 1.2 风格短标签
+            # v3.12 这类两段 tag 不是完整 SemVer，用 match 发布同名短标签
             type=match,pattern=^v(\d+\.\d+(?:\.\d+)?)$,group=1
             type=sha,prefix=
           labels: |
