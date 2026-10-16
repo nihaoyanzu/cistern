@@ -319,6 +319,21 @@ export function guideFallbackModules(): { id: string; enabled: boolean }[] {
   return MODULES.map((d) => ({ id: d.id, enabled: d.guideDefaultEnabled }))
 }
 
+/** 按侧栏 MODULES 顺序排列（API 注册序可能不同）；未知 id 追加末尾。 */
+export function orderModulesByNav<T extends { id: string }>(list: T[]): T[] {
+  const byId = new Map(list.map((m) => [m.id, m]))
+  const ordered: T[] = []
+  for (const d of MODULES) {
+    const m = byId.get(d.id)
+    if (m) {
+      ordered.push(m)
+      byId.delete(d.id)
+    }
+  }
+  for (const m of byId.values()) ordered.push(m)
+  return ordered
+}
+
 /** 侧栏/路由：具备包检索二级入口的模块 */
 export function modulesWithCatalogNav(enabled: Record<string, boolean>): ModuleDescriptor[] {
   return MODULES.filter((d) => d.nav.catalog && enabled[d.id])

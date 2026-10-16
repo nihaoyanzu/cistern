@@ -3,9 +3,15 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import copy from 'clipboard-copy'
+import ModuleIcon from '@/components/ModuleIcon.vue'
 import { api, getToken, type PublicGuide } from '@/api/client'
 import { setLocale, type SupportedLocale } from '@/i18n'
-import { guideFallbackModules, MODULE_BY_ID } from '@/modules/registry'
+import {
+  guideFallbackModules,
+  MODULE_BY_ID,
+  moduleColor,
+  orderModulesByNav,
+} from '@/modules/registry'
 import { GUIDE_SECTIONS } from '@/modules/guide/sections'
 import { useThemeStore } from '@/stores/theme'
 
@@ -18,8 +24,17 @@ const activeTab = ref('')
 
 const loggedIn = computed(() => !!getToken())
 
-const enabledModules = computed(() => (guide.value?.modules || []).filter((m) => m.enabled))
-const disabledModules = computed(() => (guide.value?.modules || []).filter((m) => !m.enabled))
+/** 与侧栏菜单同一顺序（MODULES），不跟后端注册序 */
+const enabledModules = computed(() =>
+  orderModulesByNav((guide.value?.modules || []).filter((m) => m.enabled)),
+)
+const disabledModules = computed(() =>
+  orderModulesByNav((guide.value?.modules || []).filter((m) => !m.enabled)),
+)
+
+function moduleIcon(id: string) {
+  return MODULE_BY_ID[id]?.navIcon || ''
+}
 
 const activeSection = computed(() => GUIDE_SECTIONS[activeTab.value] || null)
 
@@ -100,8 +115,15 @@ onMounted(async () => {
 <template>
   <div class="relative min-h-screen overflow-hidden">
     <div class="pointer-events-none absolute inset-0">
-      <div class="absolute -left-24 top-10 h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
-      <div class="absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-[#1e3a4c]/35 blur-3xl" />
+      <div class="absolute -left-24 top-10 h-72 w-72 rounded-full bg-accent/15 blur-3xl" />
+      <div
+        class="absolute -right-20 bottom-0 h-80 w-80 rounded-full blur-3xl"
+        style="background: var(--bg-glow-b)"
+      />
+      <div
+        class="absolute left-1/3 top-1/2 h-64 w-64 -translate-x-1/2 rounded-full blur-3xl"
+        style="background: var(--bg-glow-c)"
+      />
     </div>
 
     <div class="relative mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
@@ -156,10 +178,16 @@ onMounted(async () => {
               v-for="m in enabledModules"
               :key="m.id"
               type="button"
-              class="ui-tab"
+              class="ui-tab inline-flex items-center gap-1.5"
               :class="{ 'ui-tab-active': activeTab === m.id }"
               @click="activeTab = m.id"
             >
+              <ModuleIcon
+                v-if="moduleIcon(m.id)"
+                :name="moduleIcon(m.id)"
+                class="h-4 w-4 shrink-0"
+                :style="{ color: moduleColor(m.id) }"
+              />
               {{ moduleTitle(m.id) }}
             </button>
           </div>
@@ -177,10 +205,23 @@ onMounted(async () => {
           />
         </template>
 
-        <p v-if="disabledModules.length" class="mt-4 text-xs text-muted">
-          {{ t('guide.disabled') }}：
-          <span v-for="(m, i) in disabledModules" :key="m.id">
-            {{ moduleTitle(m.id) }}<span v-if="i < disabledModules.length - 1"> · </span>
+        <p
+          v-if="disabledModules.length"
+          class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted"
+        >
+          <span>{{ t('guide.disabled') }}：</span>
+          <span
+            v-for="m in disabledModules"
+            :key="m.id"
+            class="inline-flex items-center gap-1 opacity-70"
+          >
+            <ModuleIcon
+              v-if="moduleIcon(m.id)"
+              :name="moduleIcon(m.id)"
+              class="h-3.5 w-3.5 shrink-0"
+              :style="{ color: moduleColor(m.id) }"
+            />
+            {{ moduleTitle(m.id) }}
           </span>
         </p>
       </template>

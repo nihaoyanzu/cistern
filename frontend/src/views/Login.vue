@@ -39,10 +39,14 @@ async function submit() {
 <template>
   <div class="relative flex min-h-screen items-center justify-center overflow-hidden px-4">
     <div class="pointer-events-none absolute inset-0">
-      <div class="absolute -left-24 top-16 h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
+      <div class="absolute -left-24 top-16 h-72 w-72 rounded-full bg-accent/15 blur-3xl" />
       <div
         class="absolute -right-16 bottom-10 h-80 w-80 rounded-full blur-3xl"
         style="background: var(--bg-glow-b)"
+      />
+      <div
+        class="absolute left-1/2 top-[70%] h-56 w-56 -translate-x-1/2 rounded-full blur-3xl"
+        style="background: var(--bg-glow-c)"
       />
     </div>
 

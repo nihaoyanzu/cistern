@@ -3,14 +3,15 @@
 /* ── 双主题 token（改色只动此处）─────────────────────────── */
 
 :root {
-  /* 语义色 */
-  --color-ink: #0a0e14;
-  --color-panel: #121820;
-  --color-panel-2: #181f29;
-  --color-line: #283140;
-  --color-muted: #8490a0;
-  --color-fg: #e6ecf2;
+  /* 语义色：偏冷青绿底，强调色保持青翠绿 */
+  --color-ink: #080c12;
+  --color-panel: #121a22;
+  --color-panel-2: #18222c;
+  --color-line: #2a3542;
+  --color-muted: #8b97a6;
+  --color-fg: #e8eef4;
   --color-accent: #2f9e7a;
+  --color-accent-2: #3db8a0;
   --color-warn: #c9a227;
   --color-danger: #d26464;
   --color-ok: #4fba78;
@@ -18,16 +19,41 @@
   --color-btn-danger-text: #ffd0d0;
   --color-selection: rgba(47, 158, 122, 0.32);
 
-  /* 氛围渐变（整套替换改 --bg-atmosphere 或 glow 即可） */
-  --bg-glow-a: rgba(47, 158, 122, 0.11);
-  --bg-glow-b: rgba(36, 68, 98, 0.32);
+  /* 氛围渐变：左上青绿 / 右上冷蓝 / 底部青绿余晖 + 纵向底色 */
+  --bg-glow-a: rgba(47, 158, 122, 0.18);
+  --bg-glow-b: rgba(52, 98, 148, 0.28);
+  --bg-glow-c: rgba(24, 90, 100, 0.16);
   --bg-atmosphere:
-    radial-gradient(1100px 520px at 0% -5%, var(--bg-glow-a), transparent 58%),
-    radial-gradient(900px 460px at 100% 0%, var(--bg-glow-b), transparent 52%);
+    radial-gradient(980px 520px at 6% -6%, var(--bg-glow-a), transparent 56%),
+    radial-gradient(860px 480px at 98% 2%, var(--bg-glow-b), transparent 52%),
+    radial-gradient(720px 460px at 48% 108%, var(--bg-glow-c), transparent 58%),
+    linear-gradient(168deg, #0b141c 0%, #080c12 46%, #0a1218 100%);
+
+  --panel-surface:
+    linear-gradient(
+      155deg,
+      color-mix(in srgb, var(--color-panel) 88%, #1a2a28) 0%,
+      color-mix(in srgb, var(--color-panel) 96%, transparent) 48%,
+      color-mix(in srgb, var(--color-panel) 90%, #152030) 100%
+    );
+  --sidebar-surface:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-panel) 92%, #1a2e2a) 0%,
+      var(--color-panel) 42%,
+      color-mix(in srgb, var(--color-panel) 94%, #101820) 100%
+    );
+  --accent-fill: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-2) 100%);
+  --header-surface:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-panel) 82%, transparent) 0%,
+      color-mix(in srgb, var(--color-panel) 68%, transparent) 100%
+    );
 
   /* 阴影 / 圆角 */
   --radius-panel: 0.625rem;
-  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.025) inset, 0 4px 16px rgba(0, 0, 0, 0.18);
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 4px 18px rgba(0, 0, 0, 0.22);
   --shadow-toast:
     0 1px 0 rgba(255, 255, 255, 0.06) inset,
     0 18px 48px rgba(0, 0, 0, 0.42);
@@ -47,13 +73,14 @@
 
 .light {
   /* 语义色 */
-  --color-ink: #eef1f5;
+  --color-ink: #e9eef4;
   --color-panel: #ffffff;
-  --color-panel-2: #f3f5f8;
-  --color-line: #d0d7e0;
-  --color-muted: #5a6470;
-  --color-fg: #151a21;
+  --color-panel-2: #f1f5f8;
+  --color-line: #cfd8e2;
+  --color-muted: #5a6674;
+  --color-fg: #141a22;
   --color-accent: #1f7a5a;
+  --color-accent-2: #2a9a78;
   --color-warn: #9a6f12;
   --color-danger: #b83838;
   --color-ok: #247a4a;
@@ -61,15 +88,40 @@
   --color-btn-danger-text: #b83838;
   --color-selection: rgba(31, 122, 90, 0.2);
 
-  /* 氛围渐变 */
-  --bg-glow-a: rgba(31, 122, 90, 0.08);
-  --bg-glow-b: rgba(90, 130, 170, 0.14);
+  /* 氛围渐变：淡青绿 + 冷蓝灰，避免发灰扁平 */
+  --bg-glow-a: rgba(31, 122, 90, 0.14);
+  --bg-glow-b: rgba(70, 120, 170, 0.14);
+  --bg-glow-c: rgba(40, 110, 120, 0.08);
   --bg-atmosphere:
-    radial-gradient(1100px 520px at 0% -5%, var(--bg-glow-a), transparent 58%),
-    radial-gradient(900px 460px at 100% 0%, var(--bg-glow-b), transparent 52%);
+    radial-gradient(980px 520px at 4% -8%, var(--bg-glow-a), transparent 56%),
+    radial-gradient(860px 480px at 100% 0%, var(--bg-glow-b), transparent 52%),
+    radial-gradient(700px 420px at 50% 110%, var(--bg-glow-c), transparent 58%),
+    linear-gradient(180deg, #f3f7fa 0%, #e9eef4 52%, #e4ebf2 100%);
+
+  --panel-surface:
+    linear-gradient(
+      155deg,
+      #ffffff 0%,
+      color-mix(in srgb, #ffffff 92%, #e8f2ef) 55%,
+      color-mix(in srgb, #ffffff 94%, #e8eef6) 100%
+    );
+  --sidebar-surface:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 88%, #e6f3ee) 0%,
+      #ffffff 45%,
+      color-mix(in srgb, #ffffff 94%, #e8eef4) 100%
+    );
+  --accent-fill: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-2) 100%);
+  --header-surface:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #ffffff 88%, transparent) 0%,
+      color-mix(in srgb, #ffffff 72%, transparent) 100%
+    );
 
   /* 阴影 */
-  --shadow-panel: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.05);
+  --shadow-panel: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.06);
   --shadow-toast:
     0 1px 0 rgba(255, 255, 255, 0.9) inset,
     0 18px 40px rgba(15, 23, 42, 0.14);
@@ -117,8 +169,11 @@
   }
 
   body {
+    background-color: var(--color-ink);
     background-image: var(--bg-atmosphere);
     background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-size: cover;
   }
 
   button,
@@ -149,9 +204,9 @@
 @layer components {
   .ui-panel {
     border-radius: var(--radius-panel);
-    border: 1px solid var(--color-line);
-    background: color-mix(in srgb, var(--color-panel) 92%, transparent);
-    backdrop-filter: blur(8px);
+    border: 1px solid color-mix(in srgb, var(--color-line) 88%, var(--color-accent) 12%);
+    background: var(--panel-surface);
+    backdrop-filter: blur(10px);
     box-shadow: var(--shadow-panel);
   }
 
@@ -207,9 +262,11 @@
 
   .ui-btn-primary {
     @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md border border-accent
-      bg-accent px-3.5 py-2 text-sm font-semibold transition hover:brightness-110
+      px-3.5 py-2 text-sm font-semibold transition hover:brightness-110
       disabled:cursor-not-allowed disabled:opacity-50;
     color: var(--color-btn-primary-text);
+    background-image: var(--accent-fill);
+    background-color: var(--color-accent);
   }
 
   .ui-btn-danger {
@@ -231,7 +288,11 @@
 
   .ui-table th {
     @apply border-b border-line px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted;
-    background: color-mix(in srgb, var(--color-panel-2) 55%, transparent);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-panel-2) 72%, transparent) 0%,
+      color-mix(in srgb, var(--color-panel-2) 48%, transparent) 100%
+    );
     vertical-align: middle;
   }
 
@@ -439,12 +500,22 @@
   }
 
   .nav-link.router-link-active {
-    @apply bg-accent/15 font-medium text-fg ring-1 ring-accent/30;
+    @apply font-medium text-fg ring-1 ring-accent/30;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-accent) 22%, transparent) 0%,
+      color-mix(in srgb, var(--color-accent) 10%, transparent) 100%
+    );
   }
 
   .app-sidebar {
-    background: var(--color-panel);
-    border-right: 1px solid var(--color-line);
+    background: var(--sidebar-surface);
+    border-right: 1px solid color-mix(in srgb, var(--color-line) 90%, var(--color-accent) 10%);
+  }
+
+  .app-header {
+    background-image: var(--header-surface);
+    border-bottom-color: color-mix(in srgb, var(--color-line) 88%, var(--color-accent) 12%);
   }
 
   .app-sidebar-brand {

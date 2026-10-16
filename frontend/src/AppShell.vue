@@ -730,7 +730,7 @@ function goAccount() {
 
   <div class="flex min-h-screen flex-col lg:pl-[260px]">
     <header
-      class="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-panel/80
+      class="app-header sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-line
         px-4 backdrop-blur-md sm:px-6"
     >
       <button
