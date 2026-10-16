@@ -373,10 +373,9 @@ func defaultRuntime() RuntimeSettings {
 				},
 			},
 			"docker": {
-				Enabled:          true,
-				Upstream:         "https://docker.m.daocloud.io",
-				FileUpstream:     "https://docker.m.daocloud.io",
-				MetadataUpstream: "https://auth.docker.io",
+				Enabled:      true,
+				Upstream:     "https://docker.m.daocloud.io",
+				FileUpstream: "https://docker.m.daocloud.io",
 				Download: DownloadConfig{
 					Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024,
 				},
@@ -531,8 +530,7 @@ func defaultPlatformSeed(id string) PlatformConfig {
 		}
 	case "docker":
 		return PlatformConfig{
-			Enabled: true, Upstream: "https://docker.m.daocloud.io", FileUpstream: "https://docker.m.daocloud.io",
-			MetadataUpstream: "https://auth.docker.io", Download: dl,
+			Enabled: true, Upstream: "https://docker.m.daocloud.io", FileUpstream: "https://docker.m.daocloud.io", Download: dl,
 		}
 	case "goproxy":
 		return PlatformConfig{
@@ -568,8 +566,7 @@ func officialPlatformSeed(id string) PlatformConfig {
 		}
 	case "docker":
 		return PlatformConfig{
-			Upstream: "https://registry-1.docker.io", FileUpstream: "https://registry-1.docker.io",
-			MetadataUpstream: "https://auth.docker.io", Download: dl,
+			Upstream: "https://registry-1.docker.io", FileUpstream: "https://registry-1.docker.io", Download: dl,
 		}
 	case "goproxy":
 		return PlatformConfig{
@@ -612,10 +609,6 @@ func NormalizePlatform(id string, p PlatformConfig) PlatformConfig {
 	}
 	switch id {
 	case "pypi":
-		if strings.TrimSpace(p.MetadataUpstream) == "" {
-			p.MetadataUpstream = official.MetadataUpstream
-		}
-	case "docker":
 		if strings.TrimSpace(p.MetadataUpstream) == "" {
 			p.MetadataUpstream = official.MetadataUpstream
 		}

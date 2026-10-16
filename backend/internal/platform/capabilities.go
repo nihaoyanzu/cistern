@@ -22,10 +22,10 @@ type UpstreamAuther interface {
 	InjectUpstreamAuth(ctx context.Context, headers http.Header, cfg config.Config, reqPath string) error
 }
 
-// UpstreamAuthInvalidator 上游 401 时清票。
-type UpstreamAuthInvalidator interface {
-	InvalidateUpstreamAuth(cfg config.Config, reqPath string)
-}
+	// UpstreamAuthInvalidator 上游 401 时清票；challenge 为响应头（可含 WWW-Authenticate），可为 nil。
+	type UpstreamAuthInvalidator interface {
+		InvalidateUpstreamAuth(cfg config.Config, reqPath string, challenge http.Header)
+	}
 
 // IndexKeyer 索引缓存键 Accept 变体后缀（不含前导冒号）；空串表示无后缀。
 type IndexKeyer interface {

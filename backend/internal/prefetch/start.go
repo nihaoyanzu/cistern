@@ -94,17 +94,18 @@ func (s *Service) startOneAttempt(ctx context.Context, rawURL string, attempt in
 				}
 			}
 		}
-		onAuthFail := func(actx context.Context, h http.Header) error {
+		onAuthFail := func(actx context.Context, h http.Header, challenge http.Header) error {
 			if plat == nil {
 				return fmt.Errorf("no platform for auth refresh")
 			}
 			if inv, ok := plat.(platform.UpstreamAuthInvalidator); ok {
-				inv.InvalidateUpstreamAuth(cfg, reqPath)
+				inv.InvalidateUpstreamAuth(cfg, reqPath, challenge)
 			}
 			auther, ok := plat.(platform.UpstreamAuther)
 			if !ok {
 				return fmt.Errorf("platform has no upstream auth")
 			}
+			headers.Del("Authorization")
 			if err := auther.InjectUpstreamAuth(actx, headers, cfg, reqPath); err != nil {
 				return err
 			}

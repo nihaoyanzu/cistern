@@ -20,19 +20,9 @@ func (p *DockerPlatform) ProbeAccess(env platform.AccessProbeEnv) []platform.Acc
 			Detail: "未配置上游",
 		}}
 	}
-	authBase := strings.TrimSpace(env.Cfg.MetadataUpstream)
-	if authBase == "" {
-		authBase = defaultDockerAuth
-	}
-
 	const repo = "library/hello-world"
 	const tag = "latest"
-	tokens := dockerhandler.NewTokenSource(authBase, dockerhandler.AuthServiceFromRegistry(base), env.Client)
-	// 跟 /v2/ 的 WWW-Authenticate 学 realm；失败则回落配置/默认 auth.docker.io
-	if err := tokens.DiscoverRealm(env.Ctx, base); err != nil {
-		// 非致命：仍可用默认/配置的 Auth 换票（官方 Hub）
-		_ = err
-	}
+	tokens := dockerhandler.NewTokenSource(dockerhandler.AuthServiceFromRegistry(base), env.Client)
 
 	t0 := time.Now()
 	body, manifestURL, err := fetchProbeManifest(env, tokens, base, repo, tag)
@@ -101,26 +91,24 @@ func fetchProbeManifest(env platform.AccessProbeEnv, tokens *dockerhandler.Token
 		return resp.StatusCode, resp.Header.Clone(), body, nil
 	}
 
-	status, hdr, body, err := try(true)
+	// 已有 realm 带票，否则匿名首试
+	status, hdr, body, err := try(tokens.HasRealm())
 	if err != nil {
 		return nil, u, err
 	}
 	if status == http.StatusUnauthorized {
 		if ch, ok := dockerhandler.ParseBearerChallenge(hdr); ok {
 			tokens.ApplyChallenge(ch)
+		} else if tokens.HasRealm() {
+			tokens.Invalidate(repo)
+		} else {
+			return nil, u, fmt.Errorf("HTTP 401 without Bearer challenge")
 		}
-		tokens.Invalidate(repo)
 		status, hdr, body, err = try(true)
 		if err != nil {
 			return nil, u, err
 		}
 		_ = hdr
-	}
-	if status >= 400 {
-		status, _, body, err = try(false)
-		if err != nil {
-			return nil, u, err
-		}
 	}
 	if status >= 400 {
 		return nil, u, fmt.Errorf("HTTP %d", status)

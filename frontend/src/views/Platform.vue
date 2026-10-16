@@ -538,18 +538,6 @@ onMounted(() => {
             />
           </div>
 
-          <div v-if="thirdField === 'auth' || thirdField === 'sumdb'" class="sm:col-span-2">
-            <label class="ui-label">{{ t(currentDesc.labels.thirdFieldKey || '') }}</label>
-            <input
-              v-model="form.metadata_upstream"
-              class="ui-input"
-              :placeholder="currentDesc.hints.thirdFieldPlaceholder || ''"
-            />
-            <p v-if="currentDesc.hints.thirdFieldHintKey" class="mt-1 text-xs text-muted">
-              {{ t(currentDesc.hints.thirdFieldHintKey) }}
-            </p>
-          </div>
-
           <div v-if="thirdField === 'token'" class="sm:col-span-2">
             <label class="ui-label">{{ t(currentDesc.labels.thirdFieldKey || 'platform.upstreamToken') }}</label>
             <input

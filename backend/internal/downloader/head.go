@@ -40,7 +40,7 @@ func (e *Engine) headWithETag(ctx context.Context, opt Options) (int64, string, 
 	cl := resp.ContentLength
 	_ = resp.Body.Close()
 	if status >= 400 {
-		return 0, "", "", "", statusError(status, nil, opt.OnAuthFail != nil)
+		return 0, "", "", "", statusError(status, resp.Header, opt.OnAuthFail != nil)
 	}
 	if cl > 0 {
 		return cl, ct, finalURL, etag, nil

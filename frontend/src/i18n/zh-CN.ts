@@ -364,13 +364,8 @@ export default {
     mavenFileUpstream: '制品上游',
     registryUpstream: 'Registry 上游',
     blobUpstream: 'Blob 上游',
-    authUpstream: 'Auth 上游（Token）',
-    authUpstreamHint:
-      '联网回源时向鉴权服务获取匿名 pull Token；留空则用官方 https://auth.docker.io。纯离线命中缓存不需要 Token。',
     moduleUpstream: 'Module 上游',
     moduleFileUpstream: 'Module 文件上游',
-    sumdbUpstream: 'SumDB 上游',
-    sumdbUpstreamHint: '校验库上游；留空则回退到 Module 上游。可填 goproxy.cn（经 /sumdb/... 代取）或官方 sum.golang.org。',
     hubUpstream: 'Hub 上游',
     hubFileUpstream: '文件上游',
     upstreamToken: 'Upstream Token（可选）',

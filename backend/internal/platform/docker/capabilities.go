@@ -18,30 +18,22 @@ import (
 type DockerPlatform struct {
 	authMu sync.Mutex
 	src    *dockerhandler.TokenSource
-	auth   string
 	svc    string
 	proxy  string
 }
 
-const defaultDockerAuth = "https://auth.docker.io"
-
 func (p *DockerPlatform) tokens(cfg config.Config) *dockerhandler.TokenSource {
 	pcfg := cfg.Platforms["docker"]
-	authBase := strings.TrimSpace(pcfg.MetadataUpstream)
-	if authBase == "" {
-		authBase = defaultDockerAuth
-	}
 	svc := dockerhandler.AuthServiceFromRegistry(pcfg.Upstream)
 	proxy := strings.TrimSpace(cfg.Server.UpstreamProxy)
 	p.authMu.Lock()
 	defer p.authMu.Unlock()
-	if p.src != nil && p.auth == authBase && p.svc == svc && p.proxy == proxy {
+	if p.src != nil && p.svc == svc && p.proxy == proxy {
 		return p.src
 	}
-	// 换票必须走与下载器一致的出站代理；nil 客户端会直连 auth.docker.io
+	// 换票必须走与下载器一致的出站代理
 	client := platform.NewOutboundClient(proxy, 30*time.Second)
-	p.src = dockerhandler.NewTokenSource(authBase, svc, client)
-	p.auth = authBase
+	p.src = dockerhandler.NewTokenSource(svc, client)
 	p.svc = svc
 	p.proxy = proxy
 	return p.src
@@ -75,9 +67,9 @@ func (p *DockerPlatform) InjectUpstreamAuth(ctx context.Context, headers http.He
 		return nil
 	}
 	src := p.tokens(cfg)
-	// 优先跟 registry /v2/ 的 WWW-Authenticate 学 realm（官方 Hub、国内加速站皆可）
-	if upstream := strings.TrimSpace(cfg.Platforms["docker"].Upstream); upstream != "" {
-		_ = src.DiscoverRealm(ctx, upstream)
+	// 无 realm 时不预注入：先匿名试探，401 后再 ApplyChallenge（对齐 docker 客户端）
+	if !src.HasRealm() {
+		return nil
 	}
 	tok, err := src.Bearer(ctx, repo)
 	if err != nil {
@@ -87,17 +79,21 @@ func (p *DockerPlatform) InjectUpstreamAuth(ctx context.Context, headers http.He
 	return nil
 }
 
-func (p *DockerPlatform) InvalidateUpstreamAuth(cfg config.Config, reqPath string) {
+func (p *DockerPlatform) InvalidateUpstreamAuth(cfg config.Config, reqPath string, challenge http.Header) {
 	repo := ""
 	if rp, _, ok := dockerhandler.ParseManifestPath(reqPath); ok {
 		repo = rp
 	} else if rp, _, ok := dockerhandler.ParseBlobPath(reqPath); ok {
 		repo = rp
 	}
-	if repo == "" {
+	src := p.tokens(cfg)
+	if ch, ok := dockerhandler.ParseBearerChallenge(challenge); ok {
+		src.ApplyChallenge(ch) // 已清空缓存票
 		return
 	}
-	p.tokens(cfg).Invalidate(repo)
+	if repo != "" {
+		src.Invalidate(repo)
+	}
 }
 
 func (p *DockerPlatform) IndexCacheVariant(accept string) string {

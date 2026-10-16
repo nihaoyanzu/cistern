@@ -50,12 +50,13 @@ var (
 
 // FailError 带稳定 code 的失败，供调度器 End 与前端展示。
 type FailError struct {
-	Code   string
-	Msg    string
-	Cause  error
-	Class  Class
-	Retry  time.Duration // Retry-After，可选
-	Status int
+	Code      string
+	Msg       string
+	Cause     error
+	Class     Class
+	Retry     time.Duration // Retry-After，可选
+	Status    int
+	Challenge http.Header // 401/403 响应头（含 WWW-Authenticate），供换票
 }
 
 func (e *FailError) Error() string {
@@ -262,11 +263,15 @@ func shouldAbandonImmediately(c Class) bool {
 func statusError(status int, hdr http.Header, authCanRetry bool) error {
 	c := classifyHTTP(status, authCanRetry, hdr)
 	msg := fmt.Sprintf("upstream status %d", status)
+	var challenge http.Header
+	if hdr != nil && (c.Class == ClassAuthRetry || c.Class == ClassAuthPermanent) {
+		challenge = hdr.Clone()
+	}
 	switch c.Class {
 	case ClassRateLimit:
 		return &FailError{Code: c.Code, Msg: msg, Class: c.Class, Cause: errUpstreamRateLimited, Retry: c.RetryAfter, Status: status}
 	case ClassAuthRetry, ClassAuthPermanent:
-		return &FailError{Code: c.Code, Msg: msg, Class: c.Class, Cause: errUpstreamAuth, Status: status}
+		return &FailError{Code: c.Code, Msg: msg, Class: c.Class, Cause: errUpstreamAuth, Status: status, Challenge: challenge}
 	case ClassHard:
 		return &FailError{Code: c.Code, Msg: msg, Class: c.Class, Status: status}
 	case ClassTransient:
@@ -274,6 +279,15 @@ func statusError(status int, hdr http.Header, authCanRetry bool) error {
 	default:
 		return fmt.Errorf("upstream status %d", status)
 	}
+}
+
+// AuthChallengeOf 从鉴权失败错误中取出上游 challenge 响应头。
+func AuthChallengeOf(err error) http.Header {
+	var fe *FailError
+	if errors.As(err, &fe) && fe != nil {
+		return fe.Challenge
+	}
+	return nil
 }
 
 func wrapClassified(err error, authCanRetry bool) error {

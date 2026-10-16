@@ -46,8 +46,9 @@ type Options struct {
 	OnWaiting func()
 	// OnProgress 下载进度（已完成字节, 总字节；总字节未知时为 0）
 	OnProgress func(done, total int64)
-	// OnAuthFail 上游 401/403 时换票并刷新 headers；成功则返回 nil。每文件最多由引擎调用一次。
-	OnAuthFail func(ctx context.Context, headers http.Header) error
+	// OnAuthFail 上游 401/403 时换票并刷新 headers；challenge 为上游响应头（可含 WWW-Authenticate）。
+	// 成功则返回 nil。每文件最多由引擎调用一次。
+	OnAuthFail func(ctx context.Context, headers http.Header, challenge http.Header) error
 	// IdentityETag 首次探测到的上游 ETag（可选）；续传校验用
 	IdentityETag string
 }

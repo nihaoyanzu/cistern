@@ -62,9 +62,9 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		return auther.InjectUpstreamAuth(ctx, headers, cfg, r.URL.Path)
 	}
 	injectAuth := func() error { return injectAuthCtx(prepareCtx) }
-	invalidateAuth := func() {
+	invalidateAuth := func(challenge http.Header) {
 		if inv, ok := plat.(platform.UpstreamAuthInvalidator); ok {
-			inv.InvalidateUpstreamAuth(cfg, r.URL.Path)
+			inv.InvalidateUpstreamAuth(cfg, r.URL.Path, challenge)
 		}
 	}
 
@@ -126,7 +126,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	if r.Method == http.MethodHead {
 		size, ct, _, hubMeta, headErr := headProbe()
 		if headErr != nil && isAuthFail(headErr) {
-			invalidateAuth()
+			invalidateAuth(downloader.AuthChallengeOf(headErr))
 			if err := injectAuth(); err == nil {
 				size, ct, _, hubMeta, headErr = headProbe()
 			}
@@ -185,7 +185,7 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 	if !skipHead {
 		hs, headCT, finalURL, hubMeta, headErr := headProbe()
 		if headErr != nil && isAuthFail(headErr) {
-			invalidateAuth()
+			invalidateAuth(downloader.AuthChallengeOf(headErr))
 			if err := injectAuth(); err == nil {
 				hs, headCT, finalURL, hubMeta, headErr = headProbe()
 			}
@@ -263,8 +263,9 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		OnHit:          onHit,
 		OnWaiting:      onWaiting,
 		OnProgress:     onProgress,
-		OnAuthFail: func(actx context.Context, h http.Header) error {
-			invalidateAuth()
+		OnAuthFail: func(actx context.Context, h http.Header, challenge http.Header) error {
+			invalidateAuth(challenge)
+			headers.Del("Authorization")
 			if err := injectAuthCtx(actx); err != nil {
 				return err
 			}
@@ -304,7 +305,8 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		label, err := s.dl.ServePackage(serveCtx, tw, opt)
 		// 写头前 401/403：换票后重试一次 ServePackage（OnAuthFail 也会在引擎内触发）
 		if err != nil && !tw.wrote && isAuthFail(err) {
-			invalidateAuth()
+			invalidateAuth(downloader.AuthChallengeOf(err))
+			headers.Del("Authorization")
 			if injErr := injectAuth(); injErr == nil {
 				opt.Headers = headers
 				tw2 := &writeTrack{ResponseWriter: w}

@@ -364,13 +364,8 @@ export default {
     mavenFileUpstream: 'Artifact Upstream',
     registryUpstream: 'Registry Upstream',
     blobUpstream: 'Blob Upstream',
-    authUpstream: 'Auth Upstream (token)',
-    authUpstreamHint:
-      'Anonymous pull tokens from Docker Hub auth when fetching upstream; leave empty for official https://auth.docker.io. Pure cache hits need no token.',
     moduleUpstream: 'Module Upstream',
     moduleFileUpstream: 'Module File Upstream',
-    sumdbUpstream: 'SumDB Upstream',
-    sumdbUpstreamHint: 'Checksum DB upstream; leave empty to fall back to the module upstream. Use goproxy.cn (via /sumdb/…) or official sum.golang.org.',
     hubUpstream: 'Hub Upstream',
     hubFileUpstream: 'File Upstream',
     upstreamToken: 'Upstream Token (optional)',

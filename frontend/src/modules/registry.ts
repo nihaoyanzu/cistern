@@ -2,7 +2,7 @@
 
 export type PrefetchUI = 'none' | 'hint' | 'arch' | 'pypiWheel'
 
-export type ThirdField = 'none' | 'metadata' | 'auth' | 'sumdb' | 'token'
+export type ThirdField = 'none' | 'metadata' | 'token'
 
 export type CatalogMode = 'pypi' | 'local'
 

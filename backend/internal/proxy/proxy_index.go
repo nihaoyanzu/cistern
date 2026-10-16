@@ -102,6 +102,18 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 
 	// ---------- 3. 全量 GET（无本地条目时）----------
 	status, respHeader, body, getErr := s.dl.ProxyBytes(r.Context(), r.Method, m.TargetURL, headers, r.Body, m.Platform, prefetch)
+	// 401：按 WWW-Authenticate 换票后重试一次（对齐 docker 客户端）
+	if getErr == nil && status == http.StatusUnauthorized {
+		if inv, ok := plat.(platform.UpstreamAuthInvalidator); ok {
+			inv.InvalidateUpstreamAuth(cfg, r.URL.Path, respHeader)
+		}
+		headers.Del("Authorization")
+		if auther, ok := plat.(platform.UpstreamAuther); ok {
+			if err := auther.InjectUpstreamAuth(r.Context(), headers, cfg, r.URL.Path); err == nil {
+				status, respHeader, body, getErr = s.dl.ProxyBytes(r.Context(), r.Method, m.TargetURL, headers, nil, m.Platform, prefetch)
+			}
+		}
+	}
 	if getErr != nil {
 		if r.Method == http.MethodGet || r.Method == http.MethodHead {
 			if staleEntry == nil {
@@ -116,11 +128,15 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request, m *router.M
 		}
 		if statusSuggestsAuth(getErr) {
 			if inv, ok := plat.(platform.UpstreamAuthInvalidator); ok {
-				inv.InvalidateUpstreamAuth(cfg, r.URL.Path)
+				inv.InvalidateUpstreamAuth(cfg, r.URL.Path, respHeader)
 			}
 		}
 		http.Error(w, getErr.Error(), http.StatusBadGateway)
 		return "miss", getErr
+	}
+	if status == http.StatusUnauthorized {
+		http.Error(w, "upstream unauthorized", http.StatusBadGateway)
+		return "miss", fmt.Errorf("upstream status 401")
 	}
 
 	body, _ = platform.MaybeGunzip(body)

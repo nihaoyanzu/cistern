@@ -78,7 +78,7 @@ func (e *Engine) downloadOnce(ctx context.Context, pl *ratelimit.PlatformLimiter
 			authCan := opt.OnAuthFail != nil
 			cl := classifyUpstreamAuth(err, 0, authCan)
 			if cl.Class == ClassAuthRetry {
-				if refreshErr := e.tryAuthRefresh(ctx, &opt); refreshErr != nil {
+				if refreshErr := e.tryAuthRefresh(ctx, &opt, AuthChallengeOf(err)); refreshErr != nil {
 					return nil, fail(CodeAuthFailed, refreshErr.Error(), ClassAuthPermanent, refreshErr)
 				}
 				hs, hct, finalURL, etag, err = e.headWithETag(ctx, opt)
@@ -204,7 +204,7 @@ func (e *Engine) downloadOnce(ctx context.Context, pl *ratelimit.PlatformLimiter
 		signalWake()
 	}
 
-	tryAuth := func() error {
+	tryAuth := func(challenge http.Header) error {
 		mu.Lock()
 		if authUsed || opt.OnAuthFail == nil {
 			mu.Unlock()
@@ -212,7 +212,7 @@ func (e *Engine) downloadOnce(ctx context.Context, pl *ratelimit.PlatformLimiter
 		}
 		authUsed = true
 		mu.Unlock()
-		return e.tryAuthRefresh(jobCtx, &opt)
+		return e.tryAuthRefresh(jobCtx, &opt, challenge)
 	}
 
 	runChunk := func(ch chunk) {
@@ -298,7 +298,7 @@ func (e *Engine) downloadOnce(ctx context.Context, pl *ratelimit.PlatformLimiter
 				setErr(wrapClassified(err, false))
 				return
 			case ClassAuthRetry:
-				if refreshErr := tryAuth(); refreshErr != nil {
+				if refreshErr := tryAuth(AuthChallengeOf(err)); refreshErr != nil {
 					setErr(refreshErr)
 					return
 				}
@@ -419,14 +419,14 @@ func (e *Engine) downloadOnce(ctx context.Context, pl *ratelimit.PlatformLimiter
 	return &Result{Entry: entry, ContentType: ct, Size: size, FromCache: false, Strategy: "parallel"}, nil
 }
 
-func (e *Engine) tryAuthRefresh(ctx context.Context, opt *Options) error {
+func (e *Engine) tryAuthRefresh(ctx context.Context, opt *Options, challenge http.Header) error {
 	if opt.OnAuthFail == nil {
 		return fail(CodeAuthFailed, "no auth refresh hook", ClassAuthPermanent, errUpstreamAuth)
 	}
 	if opt.Headers == nil {
 		opt.Headers = http.Header{}
 	}
-	if err := opt.OnAuthFail(ctx, opt.Headers); err != nil {
+	if err := opt.OnAuthFail(ctx, opt.Headers, challenge); err != nil {
 		return fail(CodeAuthFailed, err.Error(), ClassAuthPermanent, err)
 	}
 	return nil

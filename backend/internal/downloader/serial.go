@@ -40,7 +40,7 @@ func (e *Engine) downloadSerial(ctx context.Context, pl *ratelimit.PlatformLimit
 			_ = os.Remove(tmp)
 			return nil, wrapClassified(err, false)
 		case ClassAuthRetry:
-			if refreshErr := e.tryAuthRefresh(ctx, &opt); refreshErr != nil {
+			if refreshErr := e.tryAuthRefresh(ctx, &opt, AuthChallengeOf(err)); refreshErr != nil {
 				_ = os.Remove(tmp)
 				return nil, refreshErr
 			}

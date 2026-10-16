@@ -88,6 +88,7 @@ func ResolveBlobURLs(ctx context.Context, client *http.Client, tokens *TokenSour
 	if tokens == nil {
 		return nil, nil, fmt.Errorf("docker token source required")
 	}
+	// 与 docker 客户端一致：先请求资源，401 再按 WWW-Authenticate 换票（见 fetchManifest）
 	body, ct, err := fetchManifest(ctx, client, tokens, registryBase, ref.Repo, ref.Tag, DefaultManifestAccept())
 	if err != nil {
 		return nil, nil, err
@@ -194,51 +195,52 @@ func selectManifestDigests(doc manifestDoc, archs []TargetArch) []string {
 }
 
 func fetchManifest(ctx context.Context, client *http.Client, tokens *TokenSource, registryBase, repo, reference, accept string) ([]byte, string, error) {
-	tok, err := tokens.Bearer(ctx, repo)
-	if err != nil {
-		return nil, "", err
-	}
 	u := RegistryManifestURL(registryBase, repo, reference)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	do := func(withAuth bool) (status int, hdr http.Header, body []byte, err error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		req.Header.Set("Accept", accept)
+		if withAuth {
+			tok, err := tokens.Bearer(ctx, repo)
+			if err != nil {
+				return 0, nil, nil, err
+			}
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		defer resp.Body.Close()
+		body, err = io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+		if err != nil {
+			return resp.StatusCode, resp.Header.Clone(), nil, err
+		}
+		return resp.StatusCode, resp.Header.Clone(), body, nil
+	}
+
+	// 已学到 realm 则带票；否则匿名首试（对齐 docker 客户端）
+	status, hdr, body, err := do(tokens.HasRealm())
 	if err != nil {
 		return nil, "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+tok)
-	req.Header.Set("Accept", accept)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, "", err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
-	if err != nil {
-		return nil, "", err
-	}
-	if resp.StatusCode == http.StatusUnauthorized {
-		tokens.Invalidate(repo)
-		tok, err = tokens.Bearer(ctx, repo)
+	if status == http.StatusUnauthorized {
+		if ch, ok := ParseBearerChallenge(hdr); ok {
+			tokens.ApplyChallenge(ch)
+		} else if tokens.HasRealm() {
+			tokens.Invalidate(repo)
+		} else {
+			return nil, "", fmt.Errorf("manifest %s: missing Bearer challenge", http.StatusText(status))
+		}
+		status, hdr, body, err = do(true)
 		if err != nil {
 			return nil, "", err
 		}
-		req2, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		req2.Header.Set("Authorization", "Bearer "+tok)
-		req2.Header.Set("Accept", accept)
-		resp2, err := client.Do(req2)
-		if err != nil {
-			return nil, "", err
-		}
-		defer resp2.Body.Close()
-		body, err = io.ReadAll(io.LimitReader(resp2.Body, 32<<20))
-		if err != nil {
-			return nil, "", err
-		}
-		if resp2.StatusCode >= 400 {
-			return nil, "", fmt.Errorf("manifest %s: %s", resp2.Status, truncate(string(body), 200))
-		}
-		return body, resp2.Header.Get("Content-Type"), nil
 	}
-	if resp.StatusCode >= 400 {
-		return nil, "", fmt.Errorf("manifest %s: %s", resp.Status, truncate(string(body), 200))
+	if status >= 400 {
+		return nil, "", fmt.Errorf("manifest %s: %s", http.StatusText(status), truncate(string(body), 200))
 	}
-	return body, resp.Header.Get("Content-Type"), nil
+	return body, hdr.Get("Content-Type"), nil
 }
