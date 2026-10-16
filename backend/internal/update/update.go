@@ -32,6 +32,10 @@ const (
 	assetPrefix = "mirrorhub_"
 	checkTTL    = 10 * time.Minute
 	apiTimeout  = 45 * time.Second
+	// 下载完成后：校验、替换、重启的时限（下载本身不占用此时限）
+	postDownloadTimeout = 5 * time.Minute
+	// 下载连续无进度超过此时长则自动取消，避免挂死占住 applyMu
+	downloadStallTimeout = 3 * time.Minute
 )
 
 // 进度阶段
@@ -132,21 +136,53 @@ func (c *Checker) setProgress(phase string, done, total int64, msg, errMsg strin
 
 // Cancel 取消进行中的升级（准备/下载/校验阶段）；替换与重启阶段不可取消。
 func (c *Checker) Cancel() error {
+	c.cancelMu.Lock()
+	cancel := c.applyCancel
 	prog := c.SnapshotProgress()
-	if !phaseCanCancel(prog.Phase) {
+	if cancel == nil || !phaseCanCancel(prog.Phase) {
+		c.cancelMu.Unlock()
 		if prog.Phase == PhaseReplacing || prog.Phase == PhaseRestarting {
 			return errors.New("已进入替换/重启阶段，无法取消")
 		}
 		return errors.New("当前没有可取消的升级")
 	}
-	c.cancelMu.Lock()
-	cancel := c.applyCancel
+	// 先清空再调用，避免与 commitReplace 竞态下重复 cancel
+	c.applyCancel = nil
 	c.cancelMu.Unlock()
-	if cancel == nil {
-		return errors.New("当前没有可取消的升级")
-	}
 	cancel()
 	c.setProgress(PhaseCancelled, prog.BytesDone, prog.BytesTotal, "正在取消…", "")
+	return nil
+}
+
+// TryBeginApply 在返回 HTTP 202 之前占用升级锁并进入 preparing，消除双请求都收到 Accepted 的竞态。
+// 成功后必须在 goroutine 中调用 Apply（Apply 假定已持锁）。
+func (c *Checker) TryBeginApply() error {
+	if !c.applyMu.TryLock() {
+		return errors.New("升级正在进行中")
+	}
+	c.setProgress(PhasePreparing, 0, 0, "准备升级（将清空预拉取队列）", "")
+	return nil
+}
+
+// TryLockExclusive 供手动重启等与升级互斥的操作使用；成功后须 UnlockExclusive。
+func (c *Checker) TryLockExclusive() bool {
+	return c.applyMu.TryLock()
+}
+
+// UnlockExclusive 释放 TryLockExclusive / TryBeginApply 所持锁（Apply 正常路径自行管理）。
+func (c *Checker) UnlockExclusive() {
+	c.applyMu.Unlock()
+}
+
+// commitReplace 关闭取消入口并确认 ctx 未取消；之后不得再取消。
+func (c *Checker) commitReplace(applyCtx context.Context) error {
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	if err := applyCtx.Err(); err != nil {
+		c.applyCancel = nil
+		return err
+	}
+	c.applyCancel = nil
 	return nil
 }
 
@@ -278,9 +314,14 @@ func pickChecksums(assets []ghAsset) *ghAsset {
 	return nil
 }
 
+var errDownloadStall = errors.New("下载超时：长时间无进度，已自动取消")
+
 func wrapCancel(err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, errDownloadStall) {
+		return errDownloadStall
 	}
 	if errors.Is(err, context.Canceled) {
 		return context.Canceled
@@ -292,19 +333,24 @@ func wrapCancel(err error) error {
 	return err
 }
 
+// wrapPostDeadline 仅用于下载完成后的 postCtx 超时/取消。
+func wrapPostDeadline(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "context canceled") {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "context deadline exceeded") {
+		return fmt.Errorf("校验/替换/重启超时（下载完成后限 %s）", postDownloadTimeout)
+	}
+	return err
+}
+
 // Apply 下载最新资产、校验、替换当前可执行文件并 Exec 重启。成功 Exec 时本函数不返回。
+// 调用前须已成功 TryBeginApply（持有 applyMu，且进度为 preparing）。
 func (c *Checker) Apply(ctx context.Context) (err error) {
-	if !c.applyMu.TryLock() {
-		return errors.New("升级正在进行中")
-	}
-	unlocked := false
-	unlock := func() {
-		if !unlocked {
-			unlocked = true
-			c.applyMu.Unlock()
-		}
-	}
-	defer unlock()
+	defer c.applyMu.Unlock()
 
 	applyCtx, cancel := context.WithCancel(ctx)
 	c.cancelMu.Lock()
@@ -336,7 +382,7 @@ func (c *Checker) Apply(ctx context.Context) (err error) {
 		}
 	}()
 
-	c.setProgress(PhasePreparing, 0, 0, "准备升级（将清空预拉取队列）", "")
+	// TryBeginApply 已置 preparing；此处仅执行前置清理
 	if c.BeforeApply != nil {
 		c.BeforeApply()
 	}
@@ -358,23 +404,28 @@ func (c *Checker) Apply(ctx context.Context) (err error) {
 		return fmt.Errorf("Release 无匹配资产 %s%s_%s", assetPrefix, runtime.GOOS, runtime.GOARCH)
 	}
 
-	var expectSHA string
-	if sumAsset := pickChecksums(rel.Assets); sumAsset != nil {
-		sums, sumErr := c.downloadBytes(applyCtx, sumAsset.BrowserDownloadURL, 1<<20)
-		if sumErr != nil {
-			if wrapCancel(sumErr) == context.Canceled || errors.Is(sumErr, context.Canceled) {
-				return context.Canceled
-			}
-			c.log.Warn("下载 SHA256SUMS 失败，跳过校验", zap.Error(sumErr))
-		} else {
-			expectSHA = parseSHA256Sums(string(sums), asset.Name)
+	sumAsset := pickChecksums(rel.Assets)
+	if sumAsset == nil {
+		return fmt.Errorf("Release 缺少 SHA256SUMS，拒绝升级")
+	}
+	sums, sumErr := c.downloadBytes(applyCtx, sumAsset.BrowserDownloadURL, 1<<20)
+	if sumErr != nil {
+		if errors.Is(sumErr, context.DeadlineExceeded) {
+			return fmt.Errorf("下载 SHA256SUMS 超时（限 %s）", downloadStallTimeout)
 		}
+		return wrapCancel(fmt.Errorf("下载 SHA256SUMS 失败: %w", sumErr))
+	}
+	expectSHA := parseSHA256Sums(string(sums), asset.Name)
+	if expectSHA == "" {
+		return fmt.Errorf("SHA256SUMS 中无资产 %s", asset.Name)
 	}
 
 	exe, err := reexec.Resolve()
 	if err != nil {
 		return err
 	}
+	// 始终落盘到正式路径（避免把 .bak 当成安装目标，导致下次仍卡在已删 .bak）
+	exe = reexec.InstallPath(exe)
 
 	tmpPath = exe + ".new"
 	_ = os.Remove(tmpPath)
@@ -382,58 +433,97 @@ func (c *Checker) Apply(ctx context.Context) (err error) {
 	if err := c.downloadFile(applyCtx, asset.BrowserDownloadURL, tmpPath, asset.Size); err != nil {
 		return wrapCancel(err)
 	}
-	if expectSHA != "" {
-		c.setProgress(PhaseVerifying, asset.Size, asset.Size, "校验 SHA256", "")
-		if err := applyCtx.Err(); err != nil {
-			return err
-		}
-		got, hashErr := fileSHA256(tmpPath)
-		if hashErr != nil {
-			return hashErr
-		}
-		if !strings.EqualFold(got, expectSHA) {
-			return fmt.Errorf("SHA256 不匹配: expect %s got %s", expectSHA, got)
-		}
+
+	// 下载已完成：后续校验/替换/重启单独限时，不再受下载耗时拖累
+	postCtx, postCancel := context.WithTimeout(applyCtx, postDownloadTimeout)
+	defer postCancel()
+
+	c.setProgress(PhaseVerifying, asset.Size, asset.Size, "校验 SHA256", "")
+	if err := postCtx.Err(); err != nil {
+		return wrapPostDeadline(err)
+	}
+	got, hashErr := fileSHA256(tmpPath)
+	if hashErr != nil {
+		return hashErr
+	}
+	if !strings.EqualFold(got, expectSHA) {
+		return fmt.Errorf("SHA256 不匹配: expect %s got %s", expectSHA, got)
 	}
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		return err
 	}
-	if err := applyCtx.Err(); err != nil {
+	if err := postCtx.Err(); err != nil {
+		return wrapPostDeadline(err)
+	}
+
+	// 关闭取消入口后再替换，避免「已取消」仍覆盖二进制
+	if err := c.commitReplace(postCtx); err != nil {
+		return wrapPostDeadline(err)
+	}
+	if err := postCtx.Err(); err != nil {
+		return wrapPostDeadline(err)
+	}
+	c.setProgress(PhaseReplacing, asset.Size, asset.Size, "替换二进制", "")
+	if err := replaceExecutable(exe, tmpPath); err != nil {
 		return err
 	}
+	tmpPath = "" // 已就位，勿删
+	_ = os.Remove(exe + ".bak") // 清理历史 bak；失败可忽略
 
-	// 进入替换阶段后不可取消
-	c.setProgress(PhaseReplacing, asset.Size, asset.Size, "替换二进制", "")
-	backup := exe + ".bak"
-	_ = os.Remove(backup)
-	if err := os.Rename(exe, backup); err != nil {
-		if err2 := os.Rename(tmpPath, exe); err2 != nil {
-			return fmt.Errorf("替换二进制失败: %v / %v", err, err2)
-		}
-		tmpPath = "" // 已就位，勿删
-	} else {
-		if err := os.Rename(tmpPath, exe); err != nil {
-			_ = os.Rename(backup, exe)
-			return fmt.Errorf("替换二进制失败: %w", err)
-		}
-		tmpPath = ""
-		_ = os.Remove(backup)
+	if err := syncFile(exe); err != nil {
+		c.log.Warn("fsync 新二进制失败，仍尝试重启", zap.Error(err))
 	}
 
+	// 二进制已替换：此后必须尝试 Exec，不再因 postCtx 超时放弃重启
 	c.setProgress(PhaseRestarting, asset.Size, asset.Size, "即将重启", "")
 	c.log.Info("update applied, re-exec",
 		zap.String("from", current),
 		zap.String("to", latest),
 		zap.String("exe", exe),
 	)
-	unlocked = true
-	// 必须 Exec 替换后的目标路径：此时 /proc/self/exe 常仍指向已删的 .bak
+	// 持锁 Exec：成功则进程被替换；失败则 defer Unlock，避免与下次升级/重启死锁
 	err = reexec.Path(exe)
-	unlocked = false
 	return fmt.Errorf("重启失败: %w", err)
 }
 
+func syncFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
+
+// replaceExecutable 用 newPath 替换 dest。
+// Unix：直接 rename 覆盖正在运行的文件（旧 inode 仍由当前进程占用，正式路径始终有效）。
+// Windows：先挪走再替换（运行中文件通常无法直接覆盖）。
+func replaceExecutable(dest, newPath string) error {
+	if runtime.GOOS != "windows" {
+		if err := os.Rename(newPath, dest); err != nil {
+			return fmt.Errorf("替换二进制失败: %w", err)
+		}
+		return nil
+	}
+	backup := dest + ".bak"
+	_ = os.Remove(backup)
+	if err := os.Rename(dest, backup); err != nil {
+		if err2 := os.Rename(newPath, dest); err2 != nil {
+			return fmt.Errorf("替换二进制失败: %v / %v", err, err2)
+		}
+		return nil
+	}
+	if err := os.Rename(newPath, dest); err != nil {
+		_ = os.Rename(backup, dest)
+		return fmt.Errorf("替换二进制失败: %w", err)
+	}
+	return nil
+}
+
 func (c *Checker) downloadBytes(ctx context.Context, url string, limit int64) ([]byte, error) {
+	// 校验和小文件：整段限时，避免正文挂死
+	ctx, cancel := context.WithTimeout(ctx, downloadStallTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -450,20 +540,67 @@ func (c *Checker) downloadBytes(ctx context.Context, url string, limit int64) ([
 	return io.ReadAll(io.LimitReader(resp.Body, limit))
 }
 
+// watchDownloadStall 在连续无进度超过 downloadStallTimeout 时取消 ctx，并标记 stalled。
+func watchDownloadStall(parent context.Context) (ctx context.Context, bump func(), stalled *atomic.Bool, stop func()) {
+	ctx, cancel := context.WithCancel(parent)
+	stalled = &atomic.Bool{}
+	var lastProg atomic.Int64
+	lastProg.Store(time.Now().UnixNano())
+	bump = func() { lastProg.Store(time.Now().UnixNano()) }
+
+	done := make(chan struct{})
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if time.Since(time.Unix(0, lastProg.Load())) < downloadStallTimeout {
+					continue
+				}
+				stalled.Store(true)
+				cancel()
+				return
+			}
+		}
+	}()
+	stop = func() {
+		cancel()
+		select {
+		case <-done:
+		default:
+			close(done)
+		}
+	}
+	return ctx, bump, stalled, stop
+}
+
 func (c *Checker) downloadFile(ctx context.Context, url, dest string, expectSize int64) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	stallCtx, bump, stalled, stopWatch := watchDownloadStall(ctx)
+	defer stopWatch()
+
+	req, err := http.NewRequestWithContext(stallCtx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("User-Agent", "mirrorhub/"+version.Version)
 	resp, err := c.downloadClient().Do(req)
 	if err != nil {
+		if stalled.Load() {
+			return errDownloadStall
+		}
 		return fmt.Errorf("下载资产失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("下载资产失败 HTTP %d", resp.StatusCode)
 	}
+	bump() // 已拿到响应头，重置空闲计时
+
 	total := expectSize
 	if total <= 0 && resp.ContentLength > 0 {
 		total = resp.ContentLength
@@ -483,12 +620,16 @@ func (c *Checker) downloadFile(ctx context.Context, url, dest string, expectSize
 	reader := &progressReader{
 		r: io.LimitReader(resp.Body, limit),
 		onRead: func(n int) {
+			bump()
 			cur := done.Add(int64(n))
 			c.setProgress(PhaseDownloading, cur, total, "正在下载更新包", "")
 		},
 	}
 	n, err := io.Copy(f, reader)
 	if err != nil {
+		if stalled.Load() {
+			return errDownloadStall
+		}
 		return err
 	}
 	if expectSize > 0 && n != expectSize {

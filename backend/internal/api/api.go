@@ -623,11 +623,9 @@ func (s *Server) postUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "已是最新版本", http.StatusConflict)
 		return
 	}
-	prog := st.Progress
-	if prog.Phase == update.PhasePreparing || prog.Phase == update.PhaseDownloading ||
-		prog.Phase == update.PhaseVerifying || prog.Phase == update.PhaseReplacing ||
-		prog.Phase == update.PhaseRestarting {
-		http.Error(w, "升级正在进行中", http.StatusConflict)
+	// 在 202 之前抢锁并进入 preparing，避免双请求都拿到 Accepted
+	if err := s.updater.TryBeginApply(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	// 先回写接受，再异步执行替换；Exec 会使进程立即被替换
@@ -641,9 +639,8 @@ func (s *Server) postUpdate(w http.ResponseWriter, r *http.Request) {
 		f.Flush()
 	}
 	go func() {
-		applyCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
-		if err := s.updater.Apply(applyCtx); err != nil {
+		// 下载阶段不设总超时（可取消）；下载完成后的校验/替换/重启由 Apply 内部限 5 分钟
+		if err := s.updater.Apply(context.Background()); err != nil {
 			if errors.Is(err, context.Canceled) {
 				s.log.Info("online update cancelled")
 				return
@@ -662,10 +659,8 @@ func (s *Server) deleteUpdate(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) postRestart(w http.ResponseWriter, _ *http.Request) {
-	prog := s.updater.SnapshotProgress()
-	switch prog.Phase {
-	case update.PhasePreparing, update.PhaseDownloading, update.PhaseVerifying,
-		update.PhaseReplacing, update.PhaseRestarting:
+	// 与升级共用一把锁，避免「重启 Self」与「升级 Path」并发 Exec
+	if !s.updater.TryLockExclusive() {
 		http.Error(w, "升级正在进行中，无法重启", http.StatusConflict)
 		return
 	}
@@ -677,9 +672,15 @@ func (s *Server) postRestart(w http.ResponseWriter, _ *http.Request) {
 		f.Flush()
 	}
 	go func() {
+		defer s.updater.UnlockExclusive()
 		time.Sleep(300 * time.Millisecond)
 		s.log.Info("manual restart requested, re-exec")
-		if err := reexec.Self(); err != nil {
+		exe, err := reexec.Resolve()
+		if err != nil {
+			s.log.Error("restart failed", zap.Error(err))
+			return
+		}
+		if err := reexec.Path(reexec.InstallPath(exe)); err != nil {
 			s.log.Error("restart failed", zap.Error(err))
 		}
 	}()
