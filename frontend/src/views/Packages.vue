@@ -6,6 +6,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
+import TableHeaderFilter, { type TableFilterOption } from '@/components/TableHeaderFilter.vue'
 import { api } from '@/api/client'
 import { usePagination } from '@/composables/usePagination'
 import { fmtBytes, fmtTime } from '@/lib/format'
@@ -183,6 +184,23 @@ function goList(p: number) {
 }
 
 const files = computed(() => detail.value?.files || [])
+const fileTypeFilter = ref('')
+const fileTypeOptions = computed<TableFilterOption[]>(() => {
+  const seen = new Set<string>()
+  const opts: TableFilterOption[] = []
+  for (const f of files.value) {
+    const typ = String(f.type || f.kind || '').trim()
+    if (!typ || seen.has(typ)) continue
+    seen.add(typ)
+    opts.push({ value: typ, label: typ })
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label))
+})
+const filteredFiles = computed(() => {
+  const typ = fileTypeFilter.value
+  if (!typ) return files.value
+  return files.value.filter((f) => String(f.type || f.kind || '') === typ)
+})
 const {
   page: filePage,
   size: fileSize,
@@ -191,7 +209,7 @@ const {
   slice: fileSlice,
   go: goFile,
   reset: resetFiles,
-} = usePagination(files, 12)
+} = usePagination(filteredFiles, 12)
 
 const versions = computed(() => {
   const d = detail.value
@@ -212,6 +230,7 @@ const {
 async function openPackage(name: string) {
   selected.value = name
   detailLoading.value = true
+  fileTypeFilter.value = ''
   resetFiles()
   resetVers()
   try {
@@ -283,10 +302,14 @@ watch(q, () => {
 watch(showUpstream, () => {
   if (selected.value && !isLocalMode.value) openPackage(selected.value)
 })
+watch(fileTypeFilter, () => {
+  resetFiles()
+})
 watch(moduleId, () => {
   q.value = ''
   selected.value = ''
   detail.value = null
+  fileTypeFilter.value = ''
   listPage.value = 1
   loadList()
 })
@@ -413,10 +436,17 @@ onUnmounted(() => {
           <div>
             <h3 class="ui-section-title">{{ t('packages.localFiles') }}</h3>
             <div class="overflow-x-auto">
-              <table v-if="fileSlice.length" class="ui-table">
+              <table v-if="files.length" class="ui-table">
                 <thead>
                   <tr>
-                    <th>{{ t('packages.type') }}</th>
+                    <th>
+                      <TableHeaderFilter
+                        v-model="fileTypeFilter"
+                        :options="fileTypeOptions"
+                        :all-label="t('packages.allTypes')"
+                        :aria-label="t('packages.type')"
+                      />
+                    </th>
                     <th>{{ t('packages.version') }}</th>
                     <th>{{ t('packages.fileName') }}</th>
                     <th>{{ t('packages.size') }}</th>
@@ -424,7 +454,7 @@ onUnmounted(() => {
                     <th></th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody v-if="fileSlice.length">
                   <tr v-for="f in fileSlice" :key="f.key">
                     <td><span class="ui-badge-muted">{{ f.type || f.kind }}</span></td>
                     <td class="font-mono text-xs">{{ f.version || '-' }}</td>
@@ -444,6 +474,7 @@ onUnmounted(() => {
                 </tbody>
               </table>
               <p v-else class="text-xs text-muted">{{ t('packages.noLocalCache') }}</p>
+              <p v-if="files.length && !fileSlice.length" class="text-xs text-muted">{{ t('common.noData') }}</p>
             </div>
             <PaginationBar
               :page="filePage"

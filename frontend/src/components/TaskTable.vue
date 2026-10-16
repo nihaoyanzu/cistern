@@ -2,6 +2,7 @@
 import EmptyState from '@/components/EmptyState.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
+import TableHeaderFilter, { type TableFilterOption } from '@/components/TableHeaderFilter.vue'
 import { usePagination } from '@/composables/usePagination'
 import { fmtBytes, fmtDurationMs } from '@/lib/format'
 import { prioClass, prioKey, statusClass, statusKey } from '@/lib/status'
@@ -23,6 +24,16 @@ const props = withDefaults(
     serverPage?: number
     serverTotal?: number
     serverPageSize?: number
+    /** 表头过滤：传入 options 时渲染下拉，否则显示静态标题 */
+    priorityFilter?: string
+    statusFilter?: string
+    platformFilter?: string
+    priorityOptions?: TableFilterOption[]
+    statusOptions?: TableFilterOption[]
+    platformOptions?: TableFilterOption[]
+    showPriorityFilter?: boolean
+    showStatusFilter?: boolean
+    showPlatformFilter?: boolean
   }>(),
   {
     loading: false,
@@ -30,6 +41,15 @@ const props = withDefaults(
     emptyTitle: '',
     emptyDescription: '',
     pageSize: 15,
+    priorityFilter: '',
+    statusFilter: '',
+    platformFilter: '',
+    priorityOptions: () => [],
+    statusOptions: () => [],
+    platformOptions: () => [],
+    showPriorityFilter: false,
+    showStatusFilter: false,
+    showPlatformFilter: false,
   },
 )
 
@@ -37,6 +57,9 @@ const emit = defineEmits<{
   cancel: [id: string]
   cancelMany: [ids: string[]]
   'update:page': [n: number]
+  'update:priorityFilter': [v: string]
+  'update:statusFilter': [v: string]
+  'update:platformFilter': [v: string]
 }>()
 
 const tasksRef = toRef(props, 'tasks')
@@ -74,6 +97,19 @@ const colCount = computed(() => (props.showPriority ? 8 : 7))
 
 const effectiveEmptyTitle = computed(() => props.emptyTitle || t('common.noData'))
 const effectiveEmptyDesc = computed(() => props.emptyDescription || undefined)
+
+const priorityModel = computed({
+  get: () => props.priorityFilter,
+  set: (v: string) => emit('update:priorityFilter', v),
+})
+const statusModel = computed({
+  get: () => props.statusFilter,
+  set: (v: string) => emit('update:statusFilter', v),
+})
+const platformModel = computed({
+  get: () => props.platformFilter,
+  set: (v: string) => emit('update:platformFilter', v),
+})
 
 function canCancel(task: QueueTask) {
   // P0/P1/P2 及 waiting 均可管理台强制取消
@@ -233,7 +269,7 @@ async function confirmCancelSelected() {
     </div>
 
     <div class="overflow-x-auto">
-      <table v-if="slice.length" class="ui-table">
+      <table class="ui-table">
         <thead>
           <tr>
             <th class="w-10">
@@ -247,16 +283,43 @@ async function confirmCancelSelected() {
                 @change="onHeaderCheck"
               />
             </th>
-            <th v-if="showPriority">{{ t('status.p0Interactive').split(' ')[0] }}</th>
-            <th>{{ t('queue.status') }}</th>
-            <th>{{ t('dashboard.platform') }}</th>
+            <th v-if="showPriority">
+              <TableHeaderFilter
+                v-if="showPriorityFilter"
+                v-model="priorityModel"
+                :options="priorityOptions"
+                :all-label="t('queue.allPriorities')"
+                :aria-label="t('queue.priority')"
+              />
+              <template v-else>{{ t('queue.priority') }}</template>
+            </th>
+            <th>
+              <TableHeaderFilter
+                v-if="showStatusFilter"
+                v-model="statusModel"
+                :options="statusOptions"
+                :all-label="t('queue.all')"
+                :aria-label="t('queue.status')"
+              />
+              <template v-else>{{ t('queue.status') }}</template>
+            </th>
+            <th>
+              <TableHeaderFilter
+                v-if="showPlatformFilter"
+                v-model="platformModel"
+                :options="platformOptions"
+                :all-label="t('access.allPlatforms')"
+                :aria-label="t('dashboard.platform')"
+              />
+              <template v-else>{{ t('dashboard.platform') }}</template>
+            </th>
             <th>{{ t('queue.task') }}</th>
             <th>{{ t('queue.wait') }}</th>
             <th>{{ t('queue.download') }}</th>
             <th class="w-24">{{ t('queue.actions') }}</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody v-if="slice.length">
           <template v-for="task in slice" :key="task.id">
             <tr
               :class="hasErrorDetail(task) ? 'cursor-pointer hover:bg-panel/80' : ''"
@@ -356,7 +419,7 @@ async function confirmCancelSelected() {
         </tbody>
       </table>
       <EmptyState
-        v-else
+        v-if="!slice.length"
         :title="loading ? t('common.loading') : effectiveEmptyTitle"
         :description="effectiveEmptyDesc"
       />

@@ -188,6 +188,8 @@ export default {
     selectAllPage: '全选本页可取消项',
 
     selected: '已选 {n} 项',
+    priority: '优先级',
+    allPriorities: '全部',
     status: '状态',
     task: '任务',
     wait: '等待',
@@ -293,6 +295,7 @@ export default {
     noVersions: '暂无版本',
     localFiles: '本地文件',
     type: '类型',
+    allTypes: '全部',
     version: '版本',
     fileName: '文件',
     access: '访问',

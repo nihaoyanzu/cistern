@@ -58,11 +58,18 @@ export const useQueueStore = defineStore('queue', () => {
     return load()
   }
 
-  function setQuery(opts: { platform?: string; priority?: string; pageSize?: number }) {
+  function setQuery(opts: {
+    platform?: string
+    priority?: string
+    pageSize?: number
+    status?: QueueStatusFilter
+  }) {
     if (opts.platform !== undefined) platform.value = opts.platform
     if (opts.priority !== undefined) priority.value = opts.priority
     if (opts.pageSize !== undefined) pageSize.value = opts.pageSize
+    if (opts.status !== undefined) status.value = opts.status
     page.value = 1
+    return load()
   }
 
   async function cancel(id: string) {

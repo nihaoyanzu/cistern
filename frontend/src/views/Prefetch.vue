@@ -5,9 +5,10 @@ import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import QueueClearMenu from '@/components/QueueClearMenu.vue'
 import TaskTable from '@/components/TaskTable.vue'
+import type { TableFilterOption } from '@/components/TableHeaderFilter.vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
-import { useQueueStore } from '@/stores/queue'
+import { useQueueStore, type QueueStatusFilter } from '@/stores/queue'
 import { isKnownModule, MODULE_BY_ID, MODULES } from '@/modules/registry'
 
 const { t } = useI18n()
@@ -45,9 +46,39 @@ function applyQueueQuery() {
     platform: moduleId.value,
     priority: 'P1,P2',
     pageSize: 15,
+    status: 'all',
   })
-  queueStore.setStatus('all')
 }
+
+const statusOptions = computed<TableFilterOption[]>(() => [
+  { value: 'running', label: t('queue.running') },
+  { value: 'done', label: t('queue.done') },
+  { value: 'error', label: t('queue.error') },
+  { value: 'cancelled', label: t('queue.cancelled') },
+])
+
+const priorityOptions = computed<TableFilterOption[]>(() => [
+  { value: 'P1', label: t('status.p1Resume') },
+  { value: 'P2', label: t('status.p2Prefetch') },
+])
+
+const statusFilter = computed({
+  get: () => (queueStore.status === 'all' ? '' : queueStore.status),
+  set: (v: string) => queueStore.setStatus((v || 'all') as QueueStatusFilter),
+})
+
+const priorityFilter = computed({
+  get: () => {
+    const p = queueStore.priority
+    return !p || p === 'P1,P2' ? '' : p
+  },
+  set: (v: string) => {
+    queueStore.setQuery({
+      platform: moduleId.value,
+      priority: v || 'P1,P2',
+    })
+  },
+})
 
 const lineHint = computed(() => {
   const n = text.value.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith('#')).length
@@ -160,6 +191,14 @@ onUnmounted(() => queueStore.stopPolling())
         :server-page="queueStore.page"
         :server-total="queueStore.total"
         :server-page-size="queueStore.pageSize"
+        show-priority-filter
+        show-status-filter
+        :priority-filter="priorityFilter"
+        :status-filter="statusFilter"
+        :priority-options="priorityOptions"
+        :status-options="statusOptions"
+        @update:priority-filter="priorityFilter = $event"
+        @update:status-filter="statusFilter = $event"
         @cancel="cancel"
         @cancel-many="cancelMany"
         @update:page="queueStore.setPage"

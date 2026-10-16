@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import StatTile from '@/components/StatTile.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import DonutChart from '@/components/DonutChart.vue'
+import TableHeaderFilter, { type TableFilterOption } from '@/components/TableHeaderFilter.vue'
 import { useStatsStore } from '@/stores/stats'
 import { fmtBytes, fmtRate, fmtWaitMs, hitRate } from '@/lib/format'
 import { MODULE_BY_ID, MODULES, moduleColor } from '@/modules/registry'
@@ -97,6 +98,23 @@ const hitByModule = computed(() => {
 })
 
 const limiters = computed(() => stats.value?.rate_limiters ?? [])
+const limiterPlatformFilter = ref('')
+const limiterPlatformOptions = computed<TableFilterOption[]>(() => {
+  const seen = new Set<string>()
+  const opts: TableFilterOption[] = []
+  for (const r of limiters.value) {
+    const id = String(r.platform || '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    opts.push({ value: id, label: platformLabel(id) })
+  }
+  return opts
+})
+const filteredLimiters = computed(() => {
+  const plat = limiterPlatformFilter.value
+  if (!plat) return limiters.value
+  return limiters.value.filter((r) => r.platform === plat)
+})
 
 function platformLabel(id: string) {
   const d = MODULE_BY_ID[id]
@@ -188,7 +206,14 @@ function platformLabel(id: string) {
         <table class="ui-table">
           <thead>
             <tr>
-              <th>{{ t('dashboard.platform') }}</th>
+              <th>
+                <TableHeaderFilter
+                  v-model="limiterPlatformFilter"
+                  :options="limiterPlatformOptions"
+                  :all-label="t('access.allPlatforms')"
+                  :aria-label="t('dashboard.platform')"
+                />
+              </th>
               <th>{{ t('dashboard.bandwidthMode') }}</th>
               <th class="text-right">{{ t('platform.prefetchMbps') }}</th>
               <th class="text-right">{{ t('dashboard.tasks') }}</th>
@@ -199,8 +224,8 @@ function platformLabel(id: string) {
               <th class="text-right">P95 {{ t('dashboard.wait') }}</th>
             </tr>
           </thead>
-          <tbody>
-            <tr v-for="(r, i) in limiters" :key="i">
+          <tbody v-if="filteredLimiters.length">
+            <tr v-for="(r, i) in filteredLimiters" :key="i">
               <td class="font-medium">
                 <span class="inline-flex items-center gap-2">
                   <span
@@ -231,6 +256,7 @@ function platformLabel(id: string) {
             </tr>
           </tbody>
         </table>
+        <EmptyState v-if="!filteredLimiters.length" :title="t('common.noData')" />
       </div>
       <div v-else>
         <EmptyState :title="t('dashboard.noRateLimit')" />

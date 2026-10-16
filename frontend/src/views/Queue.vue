@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PageHeader from '@/components/PageHeader.vue'
 import QueueClearMenu from '@/components/QueueClearMenu.vue'
 import TaskTable from '@/components/TaskTable.vue'
+import type { TableFilterOption } from '@/components/TableHeaderFilter.vue'
+import { MODULES } from '@/modules/registry'
 import { useQueueStore, type QueueStatusFilter } from '@/stores/queue'
 import { useToastStore } from '@/stores/toast'
 
@@ -11,29 +13,45 @@ const { t } = useI18n()
 const toast = useToastStore()
 const queueStore = useQueueStore()
 
-const filter = defineModel<'all' | 'running' | 'done' | 'error' | 'cancelled'>('filter', {
-  default: 'all',
-})
-
-const filters = computed(() => [
-  { id: 'all' as const, label: t('queue.all') },
-  { id: 'running' as const, label: t('queue.running') },
-  { id: 'done' as const, label: t('queue.done') },
-  { id: 'error' as const, label: t('queue.error') },
-  { id: 'cancelled' as const, label: t('queue.cancelled') },
+const statusOptions = computed<TableFilterOption[]>(() => [
+  { value: 'running', label: t('queue.running') },
+  { value: 'done', label: t('queue.done') },
+  { value: 'error', label: t('queue.error') },
+  { value: 'cancelled', label: t('queue.cancelled') },
 ])
 
-watch(
-  filter,
-  (v) => {
-    queueStore.setQuery({ platform: '', priority: '' })
-    queueStore.setStatus(v as QueueStatusFilter)
-  },
-  { immediate: true },
+const priorityOptions = computed<TableFilterOption[]>(() => [
+  { value: 'P0', label: t('status.p0Interactive') },
+  { value: 'P0+', label: t('status.p0Boost') },
+  { value: 'P1', label: t('status.p1Resume') },
+  { value: 'P2', label: t('status.p2Prefetch') },
+])
+
+const platformOptions = computed<TableFilterOption[]>(() =>
+  MODULES.map((d) => ({ value: d.id, label: t(d.labelKey) })),
 )
 
+const statusFilter = computed({
+  get: () => (queueStore.status === 'all' ? '' : queueStore.status),
+  set: (v: string) => queueStore.setStatus((v || 'all') as QueueStatusFilter),
+})
+
+const priorityFilter = computed({
+  get: () => queueStore.priority,
+  set: (v: string) => {
+    queueStore.setQuery({ platform: queueStore.platform, priority: v })
+  },
+})
+
+const platformFilter = computed({
+  get: () => queueStore.platform,
+  set: (v: string) => {
+    queueStore.setQuery({ platform: v, priority: queueStore.priority })
+  },
+})
+
 onMounted(() => {
-  queueStore.setQuery({ platform: '', priority: '', pageSize: 15 })
+  queueStore.setQuery({ platform: '', priority: '', pageSize: 15, status: 'all' })
   queueStore.startPolling(3000)
 })
 onUnmounted(() => queueStore.stopPolling())
@@ -55,7 +73,6 @@ async function cancelMany(ids: string[]) {
     toast.err(e.message || t('queue.cancelFailed'))
   }
 }
-
 </script>
 
 <template>
@@ -64,23 +81,11 @@ async function cancelMany(ids: string[]) {
       <template #actions>
         <span class="ui-badge-muted">{{ t('queue.running') }} {{ queueStore.runningCount }}</span>
         <QueueClearMenu />
-        <span class="h-4 w-px bg-line" />
-        <button
-          v-for="f in filters"
-          :key="f.id"
-          type="button"
-          class="ui-chip"
-          :class="{ 'ui-chip-active': filter === f.id }"
-          @click="filter = f.id"
-        >
-          {{ f.label }}
-        </button>
       </template>
     </PageHeader>
 
     <section class="ui-panel overflow-hidden">
       <TaskTable
-        :key="filter"
         :tasks="queueStore.tasks"
         :loading="queueStore.loading"
         :show-priority="true"
@@ -88,6 +93,18 @@ async function cancelMany(ids: string[]) {
         :server-page="queueStore.page"
         :server-total="queueStore.total"
         :server-page-size="queueStore.pageSize"
+        show-priority-filter
+        show-status-filter
+        show-platform-filter
+        :priority-filter="priorityFilter"
+        :status-filter="statusFilter"
+        :platform-filter="platformFilter"
+        :priority-options="priorityOptions"
+        :status-options="statusOptions"
+        :platform-options="platformOptions"
+        @update:priority-filter="priorityFilter = $event"
+        @update:status-filter="statusFilter = $event"
+        @update:platform-filter="platformFilter = $event"
         @cancel="cancel"
         @cancel-many="cancelMany"
         @update:page="queueStore.setPage"

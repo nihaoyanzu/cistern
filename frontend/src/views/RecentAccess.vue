@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import EmptyState from '@/components/EmptyState.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import TableHeaderFilter, { type TableFilterOption } from '@/components/TableHeaderFilter.vue'
 import { api } from '@/api/client'
 import { fmtBytes, fmtTime } from '@/lib/format'
 import { cacheClass, cacheKey } from '@/lib/status'
@@ -56,9 +57,13 @@ watch(platformFilter, () => {
   load()
 })
 
-function platformLabel(id: string) {
+  function platformLabel(id: string) {
   return MODULE_BY_ID[id]?.guideTitle || id
 }
+
+const platformOptions = computed<TableFilterOption[]>(() =>
+  platforms.value.map((id) => ({ value: id, label: platformLabel(id) })),
+)
 
 onMounted(() => {
   load()
@@ -81,16 +86,12 @@ onUnmounted(() => {
               <th>{{ t('access.time') }}</th>
               <th>{{ t('access.ip') }}</th>
               <th>
-                <select
+                <TableHeaderFilter
                   v-model="platformFilter"
-                  class="ui-input !w-auto max-w-[9rem] min-w-[6.5rem] py-1 text-xs font-medium"
+                  :options="platformOptions"
+                  :all-label="t('access.allPlatforms')"
                   :aria-label="t('access.platform')"
-                >
-                  <option value="">{{ t('access.allPlatforms') }}</option>
-                  <option v-for="id in platforms" :key="id" :value="id">
-                    {{ platformLabel(id) }}
-                  </option>
-                </select>
+                />
               </th>
               <th>{{ t('access.path') }}</th>
               <th>{{ t('access.cacheStatus') }}</th>
