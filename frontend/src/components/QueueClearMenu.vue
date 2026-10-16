@@ -19,8 +19,9 @@ const busy = ref(false)
 const menuRef = ref<HTMLElement | null>(null)
 
 type Action = 'finished' | 'prefetch' | 'all'
-/** 与弹窗 visible 分离，避免关窗时清空动作导致确认无效果 */
-const pending = ref<Action | null>(null)
+type ConfirmAction = 'prefetch' | 'all'
+/** 与弹窗 visible 分离，避免关窗时清空动作导致确认无效果；仅预取/全部需确认 */
+const pending = ref<ConfirmAction | null>(null)
 const showConfirm = ref(false)
 
 const confirmTitle = ref('')
@@ -45,18 +46,15 @@ function onDocClick(e: MouseEvent) {
 onMounted(() => document.addEventListener('click', onDocClick))
 onUnmounted(() => document.removeEventListener('click', onDocClick))
 
-function ask(action: Action) {
+function ask(action: ConfirmAction) {
   closeMenu()
   pending.value = action
   confirmDanger.value = action === 'all'
-  if (action === 'finished') {
-    confirmTitle.value = t('queue.clearFinished')
-    confirmDesc.value = t('queue.clearFinishedConfirm')
-  } else if (action === 'prefetch') {
-    confirmTitle.value = t('queue.clearPrefetch')
+  if (action === 'prefetch') {
+    confirmTitle.value = t('queue.clearPrefetchTitle')
     confirmDesc.value = t('queue.clearPrefetchConfirm')
   } else {
-    confirmTitle.value = t('queue.clearAll')
+    confirmTitle.value = t('queue.clearAllTitle')
     confirmDesc.value = t('queue.clearAllConfirm')
   }
   showConfirm.value = true
@@ -67,11 +65,21 @@ function dismissConfirm() {
   pending.value = null
 }
 
+async function runFinished() {
+  closeMenu()
+  await runAction('finished')
+}
+
 async function onConfirm() {
   const action = pending.value
   showConfirm.value = false
   if (!action) return
   pending.value = null
+  await runAction(action)
+}
+
+async function runAction(action: Action) {
+  if (busy.value) return
   busy.value = true
   const plat = props.platform || undefined
   try {
@@ -114,7 +122,7 @@ async function onConfirm() {
       v-show="open"
       class="absolute right-0 top-full z-40 mt-1.5 min-w-[11rem] overflow-hidden rounded-lg border border-line bg-panel py-1 shadow-lg"
     >
-      <button type="button" class="user-menu-item w-full text-left" @click="ask('finished')">
+      <button type="button" class="user-menu-item w-full text-left" @click="runFinished">
         {{ t('queue.clearFinished') }}
       </button>
       <button type="button" class="user-menu-item w-full text-left" @click="ask('prefetch')">

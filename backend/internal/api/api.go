@@ -45,8 +45,8 @@ type Server struct {
 	prefetch *prefetch.Service
 	auth     *auth.Service
 	traffic  *traffic.Recorder
-	log     *zap.Logger
-	updater *update.Checker
+	log      *zap.Logger
+	updater  *update.Checker
 
 	catalogMu         sync.RWMutex
 	catalogNames      []string
@@ -423,28 +423,28 @@ func (s *Server) getQueue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-	func (s *Server) clearQueue(w http.ResponseWriter, r *http.Request) {
-		mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
-		if mode == "" {
-			mode = "finished"
-		}
-		platform := normalizeQueuePlatform(r.URL.Query().Get("platform"))
-		switch mode {
-		case "finished":
-			n := s.sched.ClearFinishedMatching(platform)
-			writeJSON(w, http.StatusOK, map[string]any{"cancelled": 0, "cleared": n})
-		case "prefetch":
-			// 仅取消 P1/P2 并清理已完成（成功/已取消，保留失败）；交互 P0 不受影响
-			cancelled, cleared := s.prefetch.Purge(platform)
-			writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled, "cleared": cleared})
-		case "all":
-			// 取消全部活跃（含 P0）并清理已完成（成功/已取消，保留失败）
-			cancelled, cleared := s.prefetch.PurgeAll(platform)
-			writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled, "cleared": cleared})
-		default:
-			http.Error(w, "mode 须为 finished、prefetch 或 all", http.StatusBadRequest)
-		}
+func (s *Server) clearQueue(w http.ResponseWriter, r *http.Request) {
+	mode := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("mode")))
+	if mode == "" {
+		mode = "finished"
 	}
+	platform := normalizeQueuePlatform(r.URL.Query().Get("platform"))
+	switch mode {
+	case "finished":
+		n := s.sched.ClearFinishedMatching(platform)
+		writeJSON(w, http.StatusOK, map[string]any{"cancelled": 0, "cleared": n})
+	case "prefetch":
+		// 仅取消 P1/P2 并清理终态（成功/已取消/失败）；交互 P0 不受影响
+		cancelled, cleared := s.prefetch.Purge(platform)
+		writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled, "cleared": cleared})
+	case "all":
+		// 取消全部活跃（含 P0）并清理终态（成功/已取消/失败）
+		cancelled, cleared := s.prefetch.PurgeAll(platform)
+		writeJSON(w, http.StatusOK, map[string]any{"cancelled": cancelled, "cleared": cleared})
+	default:
+		http.Error(w, "mode 须为 finished、prefetch 或 all", http.StatusBadRequest)
+	}
+}
 
 func normalizeQueuePlatform(platform string) string {
 	platform = strings.ToLower(strings.TrimSpace(platform))

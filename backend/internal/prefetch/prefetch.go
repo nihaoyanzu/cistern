@@ -238,7 +238,7 @@ func (s *Service) CancelMatching(platform string) int {
 	return n
 }
 
-// Purge 同一调度锁内取消预取（P1/P2）并清理已完成（成功/已取消，保留失败），再打断下载 ctx / manual（不伤 P0）。
+// Purge 同一调度锁内取消预取（P1/P2）并清理终态任务，再打断下载 ctx / manual（不伤 P0）。
 func (s *Service) Purge(platform string) (cancelled, cleared int) {
 	platform = normalizePrefetchPlatform(platform)
 	cancelled, cleared = s.sched.PurgePrefetch(platform)
@@ -248,7 +248,7 @@ func (s *Service) Purge(platform string) (cancelled, cleared int) {
 	return cancelled, cleared
 }
 
-// PurgeAll 取消匹配平台全部活跃任务（含 P0）并清理已完成（成功/已取消，保留失败），再打断预取下载 ctx / manual。
+// PurgeAll 取消匹配平台全部活跃任务（含 P0）并清理终态任务，再打断预取下载 ctx / manual。
 func (s *Service) PurgeAll(platform string) (cancelled, cleared int) {
 	platform = normalizePrefetchPlatform(platform)
 	cancelled, cleared = s.sched.PurgeAll(platform)

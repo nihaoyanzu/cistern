@@ -917,7 +917,7 @@ func (s *Scheduler) CancelAllActive(resume bool) int {
 	return s.CancelMatching(Match{}, resume)
 }
 
-// ClearFinishedMatching 清理已完成任务（done/cancelled），保留失败（error）；platform 空=全部。
+// ClearFinishedMatching 清理终态任务（done/cancelled/error）；platform 空=全部。
 func (s *Scheduler) ClearFinishedMatching(platform string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -936,7 +936,7 @@ func (s *Scheduler) clearFinishedMatchingLocked(platform string) int {
 			kept = append(kept, id)
 			continue
 		}
-		if t.Status == "done" || t.Status == "cancelled" {
+		if t.Status == "done" || t.Status == "cancelled" || t.Status == "error" {
 			s.releaseActiveLocked(t) // 防御：异常路径未 End 时避免泄漏
 			delete(s.tasks, id)
 			n++
@@ -950,18 +950,18 @@ func (s *Scheduler) clearFinishedMatchingLocked(platform string) int {
 	return n
 }
 
-// ClearFinished 清理全部已完成任务（保留失败）。
+// ClearFinished 清理全部终态任务（成功/已取消/失败）。
 func (s *Scheduler) ClearFinished() int {
 	return s.ClearFinishedMatching("")
 }
 
-// PurgePrefetch 同一把锁内取消匹配预取（P1/P2）并清理已完成（成功/已取消，保留失败），再解锁 abort。
+// PurgePrefetch 同一把锁内取消匹配预取（P1/P2）并清理终态任务，再解锁 abort。
 // 不触碰 P0；避免 Cancel+Clear 分两次调用时中间又入队的竞态。
 func (s *Scheduler) PurgePrefetch(platform string) (cancelled, cleared int) {
 	return s.purgeMatching(Match{Platform: platform, PrefetchOnly: true})
 }
 
-// PurgeAll 同一把锁内取消匹配平台全部活跃任务（含 P0）并清理已完成（成功/已取消，保留失败）。
+// PurgeAll 同一把锁内取消匹配平台全部活跃任务（含 P0）并清理终态任务。
 func (s *Scheduler) PurgeAll(platform string) (cancelled, cleared int) {
 	return s.purgeMatching(Match{Platform: platform, PrefetchOnly: false})
 }
