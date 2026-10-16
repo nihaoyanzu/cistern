@@ -24,6 +24,11 @@ import (
 	"github.com/livehl/mirrorhub/internal/scheduler"
 )
 
+type manualItem struct {
+	Spec     string
+	Platform string // 提交时的模块；空则由展开认领者决定
+}
+
 type Service struct {
 	cfg   *config.Manager
 	cache *cache.Manager
@@ -32,7 +37,7 @@ type Service struct {
 	log   *zap.Logger
 
 	mu      sync.Mutex
-	manual  []string
+	manual  []manualItem
 	cancel  map[string]context.CancelFunc
 	root    context.Context
 	delayed []delayedItem
@@ -55,15 +60,16 @@ func (s *Service) Start(ctx context.Context) {
 	go s.loop(ctx)
 }
 
-// Enqueue 接受包文件 URL，或各平台规格（如 PEP 508、image:tag、GAV）。
-func (s *Service) Enqueue(items []string) {
+// EnqueuePlatform 接受包文件 URL 或各平台规格；platform 为提交页模块，下载任务沿用该平台。
+func (s *Service) EnqueuePlatform(items []string, platform string) {
+	platform = normalizePrefetchPlatform(platform)
 	s.mu.Lock()
 	for _, it := range items {
 		it = strings.TrimSpace(it)
 		if it == "" {
 			continue
 		}
-		s.manual = append(s.manual, it)
+		s.manual = append(s.manual, manualItem{Spec: it, Platform: platform})
 	}
 	s.mu.Unlock()
 	go s.drainManual(s.root)
@@ -89,32 +95,42 @@ func (s *Service) loop(ctx context.Context) {
 
 func (s *Service) drainManual(ctx context.Context) {
 	s.mu.Lock()
-	items := append([]string{}, s.manual...)
+	items := append([]manualItem{}, s.manual...)
 	s.manual = nil
 	s.mu.Unlock()
 	for _, item := range items {
-		urls, err := s.expandItem(ctx, item)
+		urls, ownerPlat, err := s.expandItem(ctx, item.Spec)
+		plat := item.Platform
+		if plat == "" {
+			plat = ownerPlat
+		}
 		if err != nil {
-			s.failResolve(item, err)
+			s.failResolve(item.Spec, plat, err)
 			continue
 		}
 		if len(urls) == 0 {
-			s.failResolve(item, fmt.Errorf("未找到匹配文件"))
+			s.failResolve(item.Spec, plat, fmt.Errorf("未找到匹配文件"))
 			continue
 		}
-		s.log.Info("prefetch resolved", zap.String("item", item), zap.Int("files", len(urls)))
+		s.log.Info("prefetch resolved",
+			zap.String("item", item.Spec),
+			zap.String("platform", plat),
+			zap.Int("files", len(urls)),
+		)
 		for _, u := range urls {
-			s.startOne(ctx, u)
+			s.startOne(ctx, u, plat)
 		}
 	}
 }
 
-func (s *Service) failResolve(item string, err error) {
-	plat := platformNameForItem(item)
+func (s *Service) failResolve(item, plat string, err error) {
+	if plat == "" {
+		plat = platformNameForItem(item)
+	}
 	taskID := s.sched.Begin(plat, item, scheduler.PriorityPrefetch, false, false)
 	s.sched.MarkRunning(taskID)
 	s.sched.End(taskID, err)
-	s.log.Warn("prefetch resolve failed", zap.String("item", item), zap.Error(err))
+	s.log.Warn("prefetch resolve failed", zap.String("item", item), zap.String("platform", plat), zap.Error(err))
 }
 
 func platformNameForItem(item string) string {
@@ -124,29 +140,36 @@ func platformNameForItem(item string) string {
 	return "unknown"
 }
 
-func platformForURL(cfg config.Config, rawURL string) (platform.Platform, config.PlatformConfig) {
+// resolvePlatform 优先用提交/展开带来的平台提示；否则再按 URL 认领；不再默认落到 pypi。
+func resolvePlatform(cfg config.Config, rawURL, hint string) (platform.Platform, config.PlatformConfig, string) {
+	hint = normalizePrefetchPlatform(hint)
+	if hint != "" {
+		if p := platform.ByName(hint); p != nil {
+			pcfg, ok := cfg.Platforms[hint]
+			if !ok {
+				pcfg = config.PlatformConfig{
+					Download: config.DownloadConfig{Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024},
+				}
+			}
+			return p, pcfg, hint
+		}
+	}
 	if p := platform.LookupPrefetchOwner(rawURL); p != nil {
 		name := p.Name()
 		pcfg, ok := cfg.Platforms[name]
 		if !ok {
 			return p, config.PlatformConfig{
 				Download: config.DownloadConfig{Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024},
-			}
+			}, name
 		}
-		return p, pcfg
+		return p, pcfg, name
 	}
-	name := "pypi"
-	pcfg, ok := cfg.Platforms[name]
-	if !ok {
-		pcfg = config.PlatformConfig{
-			Download: config.DownloadConfig{Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024},
-		}
-	}
-	p := platform.ByName(name)
-	return p, pcfg
+	return nil, config.PlatformConfig{
+		Download: config.DownloadConfig{Concurrency: 16, ChunkSize: 5 * 1024 * 1024, MinSize: 100 * 1024},
+	}, "unknown"
 }
 
-func (s *Service) expandItem(ctx context.Context, item string) ([]string, error) {
+func (s *Service) expandItem(ctx context.Context, item string) (urls []string, ownerPlat string, err error) {
 	cfg := s.cfg.Get()
 	env := platform.PrefetchExpandEnv{
 		Ctx:     ctx,
@@ -162,16 +185,18 @@ func (s *Service) expandItem(ctx context.Context, item string) ([]string, error)
 		if p, ok := exp.(platform.Platform); ok {
 			name := p.Name()
 			if pcfg, ok := cfg.Platforms[name]; ok && !pcfg.Enabled {
-				return nil, fmt.Errorf("%s 模块未启用", name)
+				return nil, name, fmt.Errorf("%s 模块未启用", name)
 			}
+			ownerPlat = name
 		}
-		return exp.ExpandPrefetchItem(env, item)
+		urls, err = exp.ExpandPrefetchItem(env, item)
+		return urls, ownerPlat, err
 	}
 	// 未被任何平台认领的绝对 URL：原样入队
 	if strings.HasPrefix(item, "http://") || strings.HasPrefix(item, "https://") {
-		return []string{item}, nil
+		return []string{item}, "", nil
 	}
-	return nil, fmt.Errorf("无法识别预取项: %s", item)
+	return nil, "", fmt.Errorf("无法识别预取项: %s", item)
 }
 
 // PrefetchBackend
@@ -276,11 +301,7 @@ func (s *Service) abortDownloadsMatching(platform string) {
 	cfg := s.cfg.Get()
 	for rawURL, cancel := range s.cancel {
 		if platform != "" {
-			plat, _ := platformForURL(cfg, rawURL)
-			name := "pypi"
-			if plat != nil {
-				name = plat.Name()
-			}
+			_, _, name := resolvePlatform(cfg, rawURL, "")
 			if name != platform {
 				continue
 			}
@@ -299,7 +320,11 @@ func (s *Service) clearManualMatching(platform string) {
 	}
 	kept := s.manual[:0]
 	for _, it := range s.manual {
-		if platformNameForItem(it) == platform {
+		plat := it.Platform
+		if plat == "" {
+			plat = platformNameForItem(it.Spec)
+		}
+		if plat == platform {
 			continue
 		}
 		kept = append(kept, it)

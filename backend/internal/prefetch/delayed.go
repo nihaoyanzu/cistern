@@ -6,14 +6,15 @@ import (
 )
 
 type delayedItem struct {
-	url     string
-	attempt int
-	after   time.Time
+	url      string
+	platform string
+	attempt  int
+	after    time.Time
 }
 
 var delayedBackoff = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second, 90 * time.Second, 180 * time.Second}
 
-func (s *Service) enqueueDelayed(rawURL string, attempt int) {
+func (s *Service) enqueueDelayed(rawURL, platform string, attempt int) {
 	if attempt >= len(delayedBackoff) {
 		return
 	}
@@ -25,9 +26,10 @@ func (s *Service) enqueueDelayed(rawURL string, attempt int) {
 		}
 	}
 	s.delayed = append(s.delayed, delayedItem{
-		url:     rawURL,
-		attempt: attempt,
-		after:   time.Now().Add(delayedBackoff[attempt]),
+		url:      rawURL,
+		platform: platform,
+		attempt:  attempt,
+		after:    time.Now().Add(delayedBackoff[attempt]),
 	})
 }
 
@@ -46,7 +48,7 @@ func (s *Service) drainDelayed(ctx context.Context) {
 	s.delayed = kept
 	s.mu.Unlock()
 	for _, d := range ready {
-		s.startOneAttempt(ctx, d.url, d.attempt)
+		s.startOneAttempt(ctx, d.url, d.platform, d.attempt)
 	}
 }
 
@@ -59,10 +61,9 @@ func (s *Service) clearDelayedMatching(platform string) {
 	}
 	kept := s.delayed[:0]
 	for _, d := range s.delayed {
-		plat, _ := platformForURL(s.cfg.Get(), d.url)
-		name := "pypi"
-		if plat != nil {
-			name = plat.Name()
+		name := d.platform
+		if name == "" {
+			_, _, name = resolvePlatform(s.cfg.Get(), d.url, "")
 		}
 		if name != platform {
 			kept = append(kept, d)

@@ -572,7 +572,7 @@ func (s *Server) postPrefetch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, msg, http.StatusBadRequest)
 		return
 	}
-	s.prefetch.Enqueue(uniq)
+	s.prefetch.EnqueuePlatform(uniq, platHint)
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"enqueued": len(uniq),
 		"items":    uniq,

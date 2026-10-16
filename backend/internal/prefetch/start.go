@@ -14,11 +14,11 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *Service) startOne(ctx context.Context, rawURL string) {
-	s.startOneAttempt(ctx, rawURL, 0)
+func (s *Service) startOne(ctx context.Context, rawURL, platHint string) {
+	s.startOneAttempt(ctx, rawURL, platHint, 0)
 }
 
-func (s *Service) startOneAttempt(ctx context.Context, rawURL string, attempt int) {
+func (s *Service) startOneAttempt(ctx context.Context, rawURL, platHint string, attempt int) {
 	host := ""
 	if u, err := url.Parse(rawURL); err == nil {
 		host = u.Host
@@ -26,7 +26,7 @@ func (s *Service) startOneAttempt(ctx context.Context, rawURL string, attempt in
 	gov := s.dl.HostGov()
 	if gov != nil && !gov.AllowPrefetch(host) {
 		// Host 承压：稍后再投
-		s.enqueueDelayed(rawURL, attempt)
+		s.enqueueDelayed(rawURL, platHint, attempt)
 		return
 	}
 
@@ -54,11 +54,7 @@ func (s *Service) startOneAttempt(ctx context.Context, rawURL string, attempt in
 			cancel()
 		}()
 		cfg := s.cfg.Get()
-		plat, pcfg := platformForURL(cfg, rawURL)
-		platName := "pypi"
-		if plat != nil {
-			platName = plat.Name()
-		}
+		plat, pcfg, platName := resolvePlatform(cfg, rawURL, platHint)
 		taskID := s.sched.Begin(platName, rawURL, scheduler.PriorityPrefetch, false, false)
 		s.sched.BindCancel(taskID, cancel)
 		defer s.sched.UnbindCancel(taskID)
@@ -144,7 +140,7 @@ func (s *Service) startOneAttempt(ctx context.Context, rawURL string, attempt in
 					zap.Int("next_attempt", attempt+1),
 					zap.Error(err),
 				)
-				s.enqueueDelayed(rawURL, attempt+1)
+				s.enqueueDelayed(rawURL, platHint, attempt+1)
 				return
 			}
 			s.sched.End(taskID, err)
