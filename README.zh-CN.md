@@ -236,7 +236,7 @@ docker compose up -d
 | http://localhost:18082 | 管理台（默认 `admin` / `admin`；打开即为说明页） |
 | http://localhost:18082/login | 登录 |
 
-镜像：`ghcr.io/nihaoyanzu/mirrorhub:latest`。本地构建：`docker compose up -d --build`。
+镜像：`ghcr.io/nihaoyanzu/cistern:latest`。本地构建：`docker compose up -d --build`。
 
 ### 2. 首次配置
 

@@ -1,7 +1,7 @@
 # MirrorHub 单容器部署：内置 SQLite + 嵌入管理台
 services:
   mirrorhub:
-    image: ghcr.io/nihaoyanzu/mirrorhub:latest
+    image: ghcr.io/nihaoyanzu/cistern:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile

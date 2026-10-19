@@ -236,7 +236,7 @@ docker compose up -d
 | http://localhost:18082 | Admin UI (default `admin` / `admin`; opens on the guide) |
 | http://localhost:18082/login | Login |
 
-Image: `ghcr.io/nihaoyanzu/mirrorhub:latest`. Local build: `docker compose up -d --build`.
+Image: `ghcr.io/nihaoyanzu/cistern:latest`. Local build: `docker compose up -d --build`.
 
 ### 2. First-time setup
 
