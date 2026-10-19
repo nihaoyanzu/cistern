@@ -1,4 +1,4 @@
-# MirrorHub
+# Cistern
 
 **Language:** [中文](README.zh-CN.md) | English
 
@@ -14,7 +14,7 @@
 
 ---
 
-## Why teams reach for MirrorHub
+## Why teams reach for Cistern
 
 Corporate networks usually fail installs the same way:
 
@@ -22,7 +22,7 @@ Corporate networks usually fail installs the same way:
 - The same multi-GB blob is pulled again by the next developer, the next CI matrix cell, the next night rebuild
 - Everyone configures their own proxy and retries — pain multiplies per machine, with **no shared on-disk cache**
 
-MirrorHub is the shared choke point that **pulls once, caches locally, and serves the LAN at full speed**.  
+Cistern is the shared choke point that **pulls once, caches locally, and serves the LAN at full speed**.  
 Prefetch (or install once) while you have egress; **after that, clients can keep installing through the same local `index-url` with the upstream offline** — drills, isolated labs, shipboard / OT networks.  
 Need international egress? Set one **upstream proxy (HTTP/SOCKS)** on the server — not on every laptop.
 
@@ -30,7 +30,7 @@ Need international egress? Set one **upstream proxy (HTTP/SOCKS)** on the server
 
 ## Advantages & design
 
-MirrorHub is not “another PyPI mirror.” It is an **ops-shaped download plane** built around how intranet teams actually install software.
+Cistern is not “another PyPI mirror.” It is an **ops-shaped download plane** built around how intranet teams actually install software.
 
 ### 1. Two ports, clear responsibilities
 
@@ -45,7 +45,7 @@ Clients never need the admin port. Operators never confuse “proxy for users”
 
 - **Indexes & small metadata** → lightweight proxy + rewrite (fast, cache-friendly)
 - **Large artifacts** → **HTTP Range parallel chunks** (saturate the allowed egress, then stick locally)
-- **Index links** rewrite to *this* download host automatically from the request **Host** — LAN machines just point at MirrorHub; no brittle hard-coded public URL in most setups
+- **Index links** rewrite to *this* download host automatically from the request **Host** — LAN machines just point at Cistern; no brittle hard-coded public URL in most setups
 
 ### 3. Interactive-first scheduling (design center) 👑
 
@@ -94,7 +94,7 @@ Platforms are **modules** (enable, upstreams, download knobs). PyPI, npm, Docker
   Dev / CI                              Public upstream
       │                                       ▲
       ▼                                       │
-  ┌─ MirrorHub ─────────────────┐            │
+  ┌─ Cistern ─────────────────┐            │
   │ Download ──► cache HIT?     │            │
   │               │ miss         │            │
   │               ▼              │            │
@@ -125,7 +125,7 @@ Platforms are **modules** (enable, upstreams, download knobs). PyPI, npm, Docker
 
 ## vs [devpi](https://devpi.net/)
 
-| | MirrorHub | devpi |
+| | Cistern | devpi |
 |--|:---------:|:-----:|
 | Role | Unified **downloader / multi-source cache** for the LAN | PyPI mirror + **private indexes & publish** |
 | Avoid repeat downloads | ✅ | ✅ |
@@ -134,12 +134,12 @@ Platforms are **modules** (enable, upstreams, download knobs). PyPI, npm, Docker
 | Private upload · index inheritance | — | ✅ |
 
 ```text
-MirrorHub: client ──► download svc ──► cache ──► upstream (optional proxy)
+Cistern: client ──► download svc ──► cache ──► upstream (optional proxy)
 devpi:     client ──► index tree ─┬─► private packages
                                  └─► root/pypi mirror
 ```
 
-Use **MirrorHub** when the pain is egress and repeated pulls.  
+Use **Cistern** when the pain is egress and repeated pulls.  
 Use **devpi** when you need a private package warehouse. Many teams run both.
 
 ---
@@ -157,7 +157,7 @@ flowchart LR
     MVN[mvn / gradle]
   end
 
-  subgraph mh [MirrorHub]
+  subgraph mh [Cistern]
     DL[Download service]
     ADM[Admin]
     CACHE[Local cache]
@@ -257,7 +257,7 @@ Platforms → PyPI
   · Index / file upstream → https://mirrors.aliyun.com/pypi (or your mirror)
 ```
 
-> **Upstream proxy** = MirrorHub’s own path to the public internet.  
+> **Upstream proxy** = Cistern’s own path to the public internet.  
 > It is **not** each laptop’s `HTTP_PROXY`, and **not** the download service URL.
 
 ### 3. Client: PyPI
