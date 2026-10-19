@@ -542,7 +542,7 @@ function goAccount() {
       <img src="/favicon.svg" alt="" class="h-7 w-7 shrink-0" width="28" height="28" />
       <div>
         <div class="text-[15px] font-semibold leading-tight tracking-tight text-fg">
-          mirror<span class="text-accent">hub</span>
+          cis<span class="text-accent">tern</span>
         </div>
         <div class="text-[10px] font-medium uppercase tracking-[0.12em] text-muted">mirror platform</div>
       </div>

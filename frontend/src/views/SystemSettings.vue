@@ -410,7 +410,7 @@ onMounted(() => {
           <input
             v-model="form.upstream_proxy"
             class="ui-input"
-            name="mirrorhub-upstream-proxy"
+            name="cistern-upstream-proxy"
             type="text"
             inputmode="url"
             autocomplete="off"
@@ -650,7 +650,7 @@ onMounted(() => {
             v-model="pwd.old_password"
             type="password"
             class="ui-input"
-            name="mirrorhub-current-password"
+            name="cistern-current-password"
             autocomplete="current-password"
           />
         </div>
@@ -660,7 +660,7 @@ onMounted(() => {
             v-model="pwd.new_password"
             type="password"
             class="ui-input"
-            name="mirrorhub-new-password"
+            name="cistern-new-password"
             autocomplete="new-password"
           />
         </div>
@@ -670,7 +670,7 @@ onMounted(() => {
             v-model="pwd.confirm"
             type="password"
             class="ui-input"
-            name="mirrorhub-confirm-password"
+            name="cistern-confirm-password"
             autocomplete="new-password"
           />
         </div>

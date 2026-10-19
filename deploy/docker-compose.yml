@@ -1,27 +1,27 @@
-# MirrorHub 单容器部署：内置 SQLite + 嵌入管理台
+# Cistern 单容器部署：内置 SQLite + 嵌入管理台
 services:
-  mirrorhub:
+  cistern:
     image: ghcr.io/nihaoyanzu/cistern:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    container_name: mirrorhub
+    container_name: cistern
     ports:
       - "18081:18081" # 下载服务（pip -i）
       - "18082:18082" # 管理台 Web / API
     environment:
-      MIRRORHUB_DATA_DIR: /data
-      MIRRORHUB_PROXY_ADDR: ":18081"
-      MIRRORHUB_ADMIN_ADDR: ":18082"
-      MIRRORHUB_LOG_LEVEL: info
+      CISTERN_DATA_DIR: /data
+      CISTERN_PROXY_ADDR: ":18081"
+      CISTERN_ADMIN_ADDR: ":18082"
+      CISTERN_LOG_LEVEL: info
       # 可选：固定 JWT；不填则首次启动写入 /data/jwt_secret
-      # MIRRORHUB_JWT_SECRET: change-me
-      # 默认不设 DATABASE_URL → /data/mirrorhub.db（SQLite）
+      # CISTERN_JWT_SECRET: change-me
+      # 默认不设 DATABASE_URL → /data/cistern.db（SQLite）
       # 若仍要用外部 Postgres，取消下一行并自行提供可达地址：
-      # DATABASE_URL: postgres://user:pass@host:5432/mirrorhub?sslmode=disable
+      # DATABASE_URL: postgres://user:pass@host:5432/cistern?sslmode=disable
     volumes:
-      - mirrorhub_data:/data
+      - cistern_data:/data
     restart: unless-stopped
 
 volumes:
-  mirrorhub_data:
+  cistern_data:

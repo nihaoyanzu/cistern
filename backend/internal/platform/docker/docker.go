@@ -7,10 +7,10 @@ package docker
 import (
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	dockerhandler "github.com/livehl/mirrorhub/internal/handlers/docker"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	dockerhandler "github.com/nihaoyanzu/cistern/internal/handlers/docker"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 func init() {

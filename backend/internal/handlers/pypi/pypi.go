@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/config"
 )
 
 var hrefAttrRe = regexp.MustCompile(`(?i)(href=["'])([^"']+)(["'])`)
@@ -390,4 +390,3 @@ func EnsureHTML5Document(body []byte) []byte {
 	b.WriteString("\n</body></html>\n")
 	return b.Bytes()
 }
-

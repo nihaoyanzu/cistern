@@ -3,7 +3,7 @@ package version
 
 // Version 当前版本号（无 v 前缀）。构建时用 ldflags 注入，例如：
 //
-//	-X github.com/livehl/mirrorhub/internal/version.Version=2.4
+//	-X github.com/nihaoyanzu/cistern/internal/version.Version=2.4
 //
 // 未注入时为 "dev"。
 var Version = "dev"

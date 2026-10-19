@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/config"
 )
 
 // applyRequestPublicHost 用客户端实际访问的 Host 改写索引里的下载链接。

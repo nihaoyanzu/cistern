@@ -1,6 +1,6 @@
 // Package npm 实现 npm registry 平台的 Platform 接口。
 //
-// 本阶段范围（对齐 MirrorHub「缓存代理」定位）：
+// 本阶段范围（对齐 Cistern「缓存代理」定位）：
 //   - packument / version 元数据缓存 + dist.tarball 改写
 //     （abbreviated / full 按 Accept 分键，冷启动走小文档）
 //   - tarball 并行/流式下载与落盘缓存（交互冷路径跳过上游 HEAD）
@@ -14,10 +14,10 @@ package npm
 import (
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	npmhandler "github.com/livehl/mirrorhub/internal/handlers/npm"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	npmhandler "github.com/nihaoyanzu/cistern/internal/handlers/npm"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 func init() {

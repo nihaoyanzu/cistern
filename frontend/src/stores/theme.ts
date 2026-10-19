@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 
 export type ThemeMode = 'dark' | 'light' | 'system'
 
-const STORAGE_KEY = 'mirrorhub_theme'
+const STORAGE_KEY = 'cistern_theme'
 
 function systemPrefersDark(): boolean {
   return window.matchMedia('(prefers-color-scheme: dark)').matches

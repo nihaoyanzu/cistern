@@ -1,4 +1,4 @@
-module github.com/livehl/mirrorhub
+module github.com/nihaoyanzu/cistern
 
 go 1.26.5
 

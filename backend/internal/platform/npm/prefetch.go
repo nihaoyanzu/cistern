@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	npmhandler "github.com/livehl/mirrorhub/internal/handlers/npm"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	npmhandler "github.com/nihaoyanzu/cistern/internal/handlers/npm"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const prefetchPriorityNPM = 60

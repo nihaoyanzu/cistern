@@ -21,8 +21,8 @@ import (
 
 	"go.etcd.io/bbolt"
 
-	"github.com/livehl/mirrorhub/internal/cachekey"
-	"github.com/livehl/mirrorhub/internal/store"
+	"github.com/nihaoyanzu/cistern/internal/cachekey"
+	"github.com/nihaoyanzu/cistern/internal/store"
 )
 
 var (
@@ -141,7 +141,7 @@ func New(dir string, maxSizeGB float64, st *store.Store) (*Manager, error) {
 	db, err := bbolt.Open(dbPath, 0o600, &bbolt.Options{Timeout: 2 * time.Second})
 	if err != nil {
 		if errors.Is(err, bbolt.ErrTimeout) || strings.Contains(err.Error(), "timeout") {
-			return nil, fmt.Errorf("打开缓存库超时（%s 可能被另一个 mirrorhub 进程占用）: %w", dbPath, err)
+			return nil, fmt.Errorf("打开缓存库超时（%s 可能被另一个 cistern 进程占用）: %w", dbPath, err)
 		}
 		return nil, err
 	}

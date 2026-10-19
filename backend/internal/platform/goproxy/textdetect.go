@@ -1,8 +1,8 @@
 package goproxy
 
 import (
-	goproxyhandler "github.com/livehl/mirrorhub/internal/handlers/goproxy"
-	"github.com/livehl/mirrorhub/internal/platform"
+	goproxyhandler "github.com/nihaoyanzu/cistern/internal/handlers/goproxy"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const textDetectPriorityGoproxy = 90

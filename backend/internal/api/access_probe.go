@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 type accessTestPlatformDraft struct {
@@ -27,8 +27,8 @@ type accessTestReq struct {
 }
 
 type accessTestModule struct {
-	ID     string                     `json:"id"`
-	OK     bool                       `json:"ok"`
+	ID     string                      `json:"id"`
+	OK     bool                        `json:"ok"`
 	Checks []platform.AccessProbeCheck `json:"checks"`
 }
 

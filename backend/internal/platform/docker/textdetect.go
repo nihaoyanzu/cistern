@@ -3,8 +3,8 @@ package docker
 import (
 	"strings"
 
-	dockerhandler "github.com/livehl/mirrorhub/internal/handlers/docker"
-	"github.com/livehl/mirrorhub/internal/platform"
+	dockerhandler "github.com/nihaoyanzu/cistern/internal/handlers/docker"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const textDetectPriorityDocker = 60

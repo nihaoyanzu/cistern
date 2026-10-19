@@ -8,10 +8,10 @@ package maven
 import (
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	mavenhandler "github.com/livehl/mirrorhub/internal/handlers/maven"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	mavenhandler "github.com/nihaoyanzu/cistern/internal/handlers/maven"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 func init() {

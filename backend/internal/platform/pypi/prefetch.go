@@ -8,9 +8,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 // 最低优先级：兜底 PEP 508 规格。

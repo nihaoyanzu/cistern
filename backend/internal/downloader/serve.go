@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/cache"
 )
 
 // ServePackage 交互下载：命中缓存直接回文件；未命中则流式并写入缓存。
@@ -154,9 +154,9 @@ func serveCachedFile(w http.ResponseWriter, entry *cache.Entry, f *os.File, boos
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("ETag", etag)
 	w.Header().Set("X-Cache", cacheLabel)
-	w.Header().Set("X-Mirrorhub-Strategy", "cache")
+	w.Header().Set("X-Cistern-Strategy", "cache")
 	if boost {
-		w.Header().Set("X-Mirrorhub-Boost", "1")
+		w.Header().Set("X-Cistern-Boost", "1")
 	}
 	if entry.RepoCommit != "" {
 		w.Header().Set("X-Repo-Commit", entry.RepoCommit)

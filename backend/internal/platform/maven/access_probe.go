@@ -3,7 +3,7 @@ package maven
 import (
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 func (p *MavenPlatform) ProbeAccess(env platform.AccessProbeEnv) []platform.AccessProbeCheck {

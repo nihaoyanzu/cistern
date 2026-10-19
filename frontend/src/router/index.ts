@@ -75,9 +75,9 @@ router.beforeEach((to) => {
 router.afterEach((to) => {
   const key = typeof to.meta.titleKey === 'string' ? to.meta.titleKey : ''
   if (key) {
-    document.title = `${String(i18n.global.t(key))} · MirrorHub`
+    document.title = `${String(i18n.global.t(key))} · Cistern`
   } else {
-    document.title = 'MirrorHub'
+    document.title = 'Cistern'
   }
 })
 

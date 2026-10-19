@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
 )
 
 const (
@@ -33,13 +33,13 @@ type packageFile struct {
 }
 
 type packageSummary struct {
-	Name         string   `json:"name"`
-	Versions     []string `json:"versions"` // 本地已有发行文件的版本
-	FileCount    int      `json:"file_count"` // 发行文件数（不含索引）
-	TotalSize    int64    `json:"total_size"` // 发行文件总大小
-	HasIndex     bool     `json:"has_index"`
-	LastAccess   string   `json:"last_access"`
-	Cached       bool     `json:"cached"` // 是否已有 wheel/sdist 等发行文件
+	Name       string   `json:"name"`
+	Versions   []string `json:"versions"`   // 本地已有发行文件的版本
+	FileCount  int      `json:"file_count"` // 发行文件数（不含索引）
+	TotalSize  int64    `json:"total_size"` // 发行文件总大小
+	HasIndex   bool     `json:"has_index"`
+	LastAccess string   `json:"last_access"`
+	Cached     bool     `json:"cached"` // 是否已有 wheel/sdist 等发行文件
 }
 
 func (s *Server) listPackages(w http.ResponseWriter, r *http.Request) {

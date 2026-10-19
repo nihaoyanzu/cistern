@@ -143,19 +143,19 @@ jobs:
           for pair in linux/amd64 linux/arm64; do
             GOOS=${pair%/*}
             GOARCH=${pair#*/}
-            out="dist/mirrorhub_${GOOS}_${GOARCH}"
+            out="dist/cistern_${GOOS}_${GOARCH}"
             CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build -trimpath \
-              -ldflags="-s -w -X github.com/livehl/mirrorhub/internal/version.Version=${VERSION}" \
-              -o "$out" ./cmd/mirrorhub
+              -ldflags="-s -w -X github.com/nihaoyanzu/cistern/internal/version.Version=${VERSION}" \
+              -o "$out" ./cmd/cistern
           done
-          (cd dist && sha256sum mirrorhub_linux_amd64 mirrorhub_linux_arm64 > SHA256SUMS)
+          (cd dist && sha256sum cistern_linux_amd64 cistern_linux_arm64 > SHA256SUMS)
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            backend/dist/mirrorhub_linux_amd64
-            backend/dist/mirrorhub_linux_arm64
+            backend/dist/cistern_linux_amd64
+            backend/dist/cistern_linux_arm64
             backend/dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
 )
 
 // downloadSerial 单连接整包下载（上游未提供 Content-Length 时使用）

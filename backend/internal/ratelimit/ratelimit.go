@@ -9,7 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/time/rate"
 
-	"github.com/livehl/mirrorhub/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/config"
 )
 
 type TrafficClass int
@@ -46,7 +46,7 @@ type Registry struct {
 
 var (
 	RateLimitWaitSeconds = prometheus.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "mirrorhub_rate_limit_wait_seconds",
+		Name:    "cistern_rate_limit_wait_seconds",
 		Help:    "Time spent in WaitN",
 		Buckets: []float64{0.001, 0.01, 0.05, 0.1, 0.5, 1, 2, 5},
 	}, []string{"platform", "class"})

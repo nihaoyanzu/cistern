@@ -53,10 +53,10 @@ async function submit() {
     <div class="relative w-full max-w-sm">
       <div class="mb-6 text-center">
         <div class="mb-3 flex justify-center">
-          <img src="/favicon.svg" alt="MirrorHub" class="h-12 w-12" width="48" height="48" />
+          <img src="/favicon.svg" alt="Cistern" class="h-12 w-12" width="48" height="48" />
         </div>
         <div class="text-4xl font-semibold tracking-wide">
-          mirror<span class="text-accent">hub</span>
+          cis<span class="text-accent">tern</span>
         </div>
         <p class="mt-2 text-sm uppercase tracking-[0.18em] text-muted">{{ t('login.tagline') }}</p>
       </div>

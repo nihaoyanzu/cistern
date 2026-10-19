@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
 	"go.uber.org/zap"
 )
 

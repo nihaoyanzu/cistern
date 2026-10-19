@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 // getPublicGuide 无需登录：返回全部已注册模块的启用状态与下载端口，

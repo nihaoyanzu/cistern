@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	hfhandler "github.com/livehl/mirrorhub/internal/handlers/huggingface"
-	"github.com/livehl/mirrorhub/internal/platform"
+	hfhandler "github.com/nihaoyanzu/cistern/internal/handlers/huggingface"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 func (p *HuggingFacePlatform) ProbeAccess(env platform.AccessProbeEnv) []platform.AccessProbeCheck {

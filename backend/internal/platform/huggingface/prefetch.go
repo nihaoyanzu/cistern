@@ -8,9 +8,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	hfhandler "github.com/livehl/mirrorhub/internal/handlers/huggingface"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	hfhandler "github.com/nihaoyanzu/cistern/internal/handlers/huggingface"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 // HF 优先于 Docker：无 tag 的 owner/repo 只归 HF（Docker 不认裸名）。

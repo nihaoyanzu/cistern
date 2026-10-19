@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	npmhandler "github.com/livehl/mirrorhub/internal/handlers/npm"
+	npmhandler "github.com/nihaoyanzu/cistern/internal/handlers/npm"
 )
 
 func (p *NPMPlatform) IndexCacheVariant(accept string) string {

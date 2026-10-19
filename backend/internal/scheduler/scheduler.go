@@ -14,11 +14,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/downloader"
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
-	"github.com/livehl/mirrorhub/internal/metrics"
-	"github.com/livehl/mirrorhub/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/downloader"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/metrics"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
 )
 
 type Priority int
@@ -41,24 +41,24 @@ func (p Priority) String() string {
 }
 
 type TaskInfo struct {
-	ID        string    `json:"id"`
-	Platform  string    `json:"platform"`
-	URL       string    `json:"url"`
-	Label     string    `json:"label"`
-	Detail    string    `json:"detail,omitempty"`
-	Priority  string    `json:"priority"`
-	Boosted   bool      `json:"boosted"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	QueuedAt  time.Time `json:"queued_at"`
-	StartedAt time.Time `json:"started_at,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
-	WaitMs    int64     `json:"wait_ms"`
-	ElapsedMs int64     `json:"elapsed_ms"` // 下载耗时：running=至今；终态=StartedAt→UpdatedAt
-	BytesDone  int64  `json:"bytes_done"`
-	BytesTotal int64  `json:"bytes_total"`
-	Error      string `json:"error,omitempty"`
-	ErrorCode  string `json:"error_code,omitempty"`
+	ID         string    `json:"id"`
+	Platform   string    `json:"platform"`
+	URL        string    `json:"url"`
+	Label      string    `json:"label"`
+	Detail     string    `json:"detail,omitempty"`
+	Priority   string    `json:"priority"`
+	Boosted    bool      `json:"boosted"`
+	Status     string    `json:"status"`
+	CreatedAt  time.Time `json:"created_at"`
+	QueuedAt   time.Time `json:"queued_at"`
+	StartedAt  time.Time `json:"started_at,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	WaitMs     int64     `json:"wait_ms"`
+	ElapsedMs  int64     `json:"elapsed_ms"` // 下载耗时：running=至今；终态=StartedAt→UpdatedAt
+	BytesDone  int64     `json:"bytes_done"`
+	BytesTotal int64     `json:"bytes_total"`
+	Error      string    `json:"error,omitempty"`
+	ErrorCode  string    `json:"error_code,omitempty"`
 
 	// wantP0：制品交互任务，MarkRunning 时才计入 p0Active 并 pause（preparing/inflight 等待不占 P0）。
 	// countsActive：当前是否已计入 p0Active；pause 时把运行中 P2 改标为 P1 不改此标记，避免 End 误减。
@@ -75,8 +75,8 @@ const finishedTaskTTL = 10 * time.Minute
 
 // 失败任务保留更久，便于查看原因；超时或超量时淘汰最旧条目。
 const (
-	errorTaskTTL   = 24 * time.Hour
-	errorTaskMaxN  = 200
+	errorTaskTTL  = 24 * time.Hour
+	errorTaskMaxN = 200
 )
 
 type Scheduler struct {

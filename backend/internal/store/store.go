@@ -27,7 +27,7 @@ type Store struct {
 	dial dialect
 }
 
-// Open 打开存储。databaseURL 为空时使用 dataDir/mirrorhub.db（SQLite）。
+// Open 打开存储。databaseURL 为空时使用 dataDir/cistern.db；若该文件不存在且有 mirrorhub.db，则继续用旧库。
 func Open(databaseURL, dataDir string) (*Store, error) {
 	url := strings.TrimSpace(databaseURL)
 	if url == "" || isSQLiteURL(url) {
@@ -78,7 +78,14 @@ func sqlitePath(databaseURL, dataDir string) string {
 	u := strings.TrimSpace(databaseURL)
 	switch {
 	case u == "":
-		return filepath.Join(dataDir, "mirrorhub.db")
+		next := filepath.Join(dataDir, "cistern.db")
+		prev := filepath.Join(dataDir, "mirrorhub.db")
+		if _, err := os.Stat(next); err != nil {
+			if _, err := os.Stat(prev); err == nil {
+				return prev
+			}
+		}
+		return next
 	case strings.HasPrefix(strings.ToLower(u), "sqlite:"):
 		return strings.TrimPrefix(u[7:], "//")
 	case strings.HasPrefix(strings.ToLower(u), "file:"):

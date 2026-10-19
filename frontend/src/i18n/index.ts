@@ -2,7 +2,7 @@ import { createI18n } from 'vue-i18n'
 import zhCN from './zh-CN'
 import en from './en'
 
-const STORAGE_KEY = 'mirrorhub_lang'
+const STORAGE_KEY = 'cistern_lang'
 
 function detectLocale(): string {
   try {

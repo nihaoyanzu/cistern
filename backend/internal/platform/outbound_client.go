@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// NewOutboundClient 构造遵守 MirrorHub 出站代理的 HTTP 客户端。
+// NewOutboundClient 构造遵守 Cistern 出站代理的 HTTP 客户端。
 // proxyURL 为空时显式直连（不回退环境变量 HTTP(S)_PROXY）。
 func NewOutboundClient(proxyURL string, timeout time.Duration) *http.Client {
 	if timeout <= 0 {

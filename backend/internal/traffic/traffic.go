@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/store"
+	"github.com/nihaoyanzu/cistern/internal/store"
 )
 
 const (

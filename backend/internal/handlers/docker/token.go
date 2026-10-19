@@ -28,7 +28,7 @@ type cachedToken struct {
 }
 
 // NewTokenSource 创建换票客户端；httpClient 空则用带超时的直连客户端（不读环境变量代理）。
-// 生产路径应传入遵守 MirrorHub UpstreamProxy 的客户端。
+// 生产路径应传入遵守 Cistern UpstreamProxy 的客户端。
 func NewTokenSource(service string, httpClient *http.Client) *TokenSource {
 	service = strings.TrimSpace(service)
 	if httpClient == nil {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
-	"github.com/livehl/mirrorhub/internal/platform"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 func (p *PyPIPlatform) ProbeAccess(env platform.AccessProbeEnv) []platform.AccessProbeCheck {

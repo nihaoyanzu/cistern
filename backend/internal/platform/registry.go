@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 var (

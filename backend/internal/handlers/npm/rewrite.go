@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/config"
 )
 
 // PublicBaseURL 对外访问根（请求期内由代理按访问 Host 填入 PublicHost）。

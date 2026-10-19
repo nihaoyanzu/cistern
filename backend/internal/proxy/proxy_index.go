@@ -10,10 +10,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 // handleIndex 缓存改写前正文，每次响应按客户端访问 Host 改写
@@ -265,10 +265,10 @@ func (s *Server) serveRevalidated(w http.ResponseWriter, r *http.Request, result
 	w.Header().Set("Content-Length", strconv.Itoa(len(tr.Body)))
 	w.Header().Set("ETag", tr.ETag)
 	w.Header().Set("X-Cache", "REVALIDATED")
-	w.Header().Set("X-Mirrorhub-Strategy", "index")
+	w.Header().Set("X-Cistern-Strategy", "index")
 	decorateIndexHeaders(w, plat, tr.Body)
 	if boost {
-		w.Header().Set("X-Mirrorhub-Boost", "1")
+		w.Header().Set("X-Cistern-Boost", "1")
 	}
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(tr.Body)
@@ -306,10 +306,10 @@ func (s *Server) serveCachedIndex(w http.ResponseWriter, r *http.Request, entry 
 	w.Header().Set("Content-Length", strconv.Itoa(len(tr.Body)))
 	w.Header().Set("ETag", tr.ETag)
 	w.Header().Set("X-Cache", cacheLabel)
-	w.Header().Set("X-Mirrorhub-Strategy", "index")
+	w.Header().Set("X-Cistern-Strategy", "index")
 	decorateIndexHeaders(w, plat, tr.Body)
 	if boost {
-		w.Header().Set("X-Mirrorhub-Boost", "1")
+		w.Header().Set("X-Cistern-Boost", "1")
 	}
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(tr.Body)

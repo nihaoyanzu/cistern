@@ -3,8 +3,8 @@ package goproxy
 import (
 	"net/http"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	goproxyhandler "github.com/livehl/mirrorhub/internal/handlers/goproxy"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	goproxyhandler "github.com/nihaoyanzu/cistern/internal/handlers/goproxy"
 )
 
 func (p *GoproxyPlatform) TryLocalProbe(w http.ResponseWriter, r *http.Request, cfg config.Config) bool {

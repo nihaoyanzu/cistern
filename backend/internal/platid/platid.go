@@ -5,12 +5,12 @@ import (
 	"net/url"
 	"strings"
 
-	dockerhandler "github.com/livehl/mirrorhub/internal/handlers/docker"
-	goproxyhandler "github.com/livehl/mirrorhub/internal/handlers/goproxy"
-	hfhandler "github.com/livehl/mirrorhub/internal/handlers/huggingface"
-	mavenhandler "github.com/livehl/mirrorhub/internal/handlers/maven"
-	npmhandler "github.com/livehl/mirrorhub/internal/handlers/npm"
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
+	dockerhandler "github.com/nihaoyanzu/cistern/internal/handlers/docker"
+	goproxyhandler "github.com/nihaoyanzu/cistern/internal/handlers/goproxy"
+	hfhandler "github.com/nihaoyanzu/cistern/internal/handlers/huggingface"
+	mavenhandler "github.com/nihaoyanzu/cistern/internal/handlers/maven"
+	npmhandler "github.com/nihaoyanzu/cistern/internal/handlers/npm"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
 )
 
 // Order 判定顺序：更具体的平台优先。

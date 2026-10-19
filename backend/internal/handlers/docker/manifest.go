@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/config"
 )
 
 // IndexETag 由 manifest 正文生成。

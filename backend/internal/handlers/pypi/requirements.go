@@ -7,12 +7,12 @@ import (
 )
 
 var (
-	eggNameRe        = regexp.MustCompile(`(?i)(?:#|&)egg=([A-Za-z0-9_.-]+)`)
-	tomlDepsArrayRe  = regexp.MustCompile(`(?im)(?:^|[\n\r])[ \t]*dependencies[ \t]*=[ \t]*\[`)
-	tomlSectionRe    = regexp.MustCompile(`(?m)^\[([^\]]+)\][ \t]*$`)
-	poetryDepTableRe = regexp.MustCompile(`(?i)^tool\.poetry(?:\.group\.[^.\]]+)?\.dependencies$`)
-	optDepTableRe    = regexp.MustCompile(`(?i)^(project\.optional-dependencies|dependency-groups)$`)
-	poetryAssignRe   = regexp.MustCompile(`^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\s*=\s*(.+)$`)
+	eggNameRe         = regexp.MustCompile(`(?i)(?:#|&)egg=([A-Za-z0-9_.-]+)`)
+	tomlDepsArrayRe   = regexp.MustCompile(`(?im)(?:^|[\n\r])[ \t]*dependencies[ \t]*=[ \t]*\[`)
+	tomlSectionRe     = regexp.MustCompile(`(?m)^\[([^\]]+)\][ \t]*$`)
+	poetryDepTableRe  = regexp.MustCompile(`(?i)^tool\.poetry(?:\.group\.[^.\]]+)?\.dependencies$`)
+	optDepTableRe     = regexp.MustCompile(`(?i)^(project\.optional-dependencies|dependency-groups)$`)
+	poetryAssignRe    = regexp.MustCompile(`^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\s*=\s*(.+)$`)
 	poetryVersionInRe = regexp.MustCompile(`(?i)version\s*=\s*["']([^"']+)["']`)
 )
 

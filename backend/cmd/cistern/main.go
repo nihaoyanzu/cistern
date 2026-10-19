@@ -15,17 +15,17 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/livehl/mirrorhub/internal/api"
-	"github.com/livehl/mirrorhub/internal/auth"
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/downloader"
-	"github.com/livehl/mirrorhub/internal/prefetch"
-	"github.com/livehl/mirrorhub/internal/proxy"
-	"github.com/livehl/mirrorhub/internal/ratelimit"
-	"github.com/livehl/mirrorhub/internal/scheduler"
-	"github.com/livehl/mirrorhub/internal/traffic"
-	"github.com/livehl/mirrorhub/internal/version"
+	"github.com/nihaoyanzu/cistern/internal/api"
+	"github.com/nihaoyanzu/cistern/internal/auth"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/downloader"
+	"github.com/nihaoyanzu/cistern/internal/prefetch"
+	"github.com/nihaoyanzu/cistern/internal/proxy"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/scheduler"
+	"github.com/nihaoyanzu/cistern/internal/traffic"
+	"github.com/nihaoyanzu/cistern/internal/version"
 )
 
 func main() {
@@ -101,9 +101,7 @@ func main() {
 	}
 
 	proxySrv := proxy.New(cfgMgr, cacheMgr, dl, sched, limiters, tr, log)
-	if v := strings.TrimSpace(os.Getenv("MIRRORHUB_WEB_DIR")); v != "" {
-		log.Warn("MIRRORHUB_WEB_DIR 已废弃，管理台仅使用嵌入前端，该变量将被忽略", zap.String("value", v))
-	}
+	warnObsoleteWebDir(log)
 
 	adminSrv := api.New(cfgMgr, cacheMgr, dl, limiters, sched, pf, authSvc, tr, log)
 	adminSrv.StartCatalog(ctx)
@@ -163,6 +161,20 @@ func logPlatforms(log *zap.Logger, cfg config.Config) {
 	)
 }
 
+func warnObsoleteWebDir(log *zap.Logger) {
+	for _, key := range []string{"CISTERN_WEB_DIR", "MIRRORHUB_WEB_DIR"} {
+		v := strings.TrimSpace(os.Getenv(key))
+		if v == "" {
+			continue
+		}
+		log.Warn("管理台仅使用嵌入前端，该环境变量已废弃并被忽略",
+			zap.String("key", key),
+			zap.String("value", v),
+		)
+		return
+	}
+}
+
 func loadDotEnv() {
 	candidates := []string{".env", "backend/.env"}
 	if wd, err := os.Getwd(); err == nil {
@@ -184,13 +196,13 @@ func newLogger(level, dataDir string) (*zap.Logger, error) {
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return nil, err
 	}
-	logPath := filepath.Join(logDir, time.Now().Format("mirrorhub-20060102.log"))
+	logPath := filepath.Join(logDir, time.Now().Format("cistern-20060102.log"))
 	absLog, _ := filepath.Abs(logPath)
 
 	cfg := zap.NewProductionConfig()
 	cfg.Encoding = "console"
 	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	// 同时输出到控制台与 data/logs/mirrorhub-YYYYMMDD.log
+	// 同时输出到控制台与 data/logs/cistern-YYYYMMDD.log
 	cfg.OutputPaths = []string{"stdout", absLog}
 	cfg.ErrorOutputPaths = []string{"stderr", absLog}
 	switch level {

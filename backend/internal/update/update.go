@@ -20,16 +20,16 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/reexec"
-	"github.com/livehl/mirrorhub/internal/version"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/reexec"
+	"github.com/nihaoyanzu/cistern/internal/version"
 )
 
 const (
 	githubOwner = "nihaoyanzu"
-	githubRepo  = "mirrorhub"
-	assetPrefix = "mirrorhub_"
+	githubRepo  = "cistern"
+	assetPrefix = "cistern_"
 	checkTTL    = 10 * time.Minute
 	apiTimeout  = 45 * time.Second
 	// 下载完成后：校验、替换、重启的时限（下载本身不占用此时限）
@@ -96,8 +96,8 @@ type Checker struct {
 
 func New(cfg *config.Manager, log *zap.Logger) *Checker {
 	return &Checker{
-		cfg: cfg,
-		log: log,
+		cfg:  cfg,
+		log:  log,
 		prog: Progress{Phase: PhaseIdle},
 	}
 }
@@ -273,7 +273,7 @@ func (c *Checker) fetchLatest(ctx context.Context) (*ghRelease, error) {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "mirrorhub/"+version.Version)
+	req.Header.Set("User-Agent", "cistern/"+version.Version)
 
 	resp, err := c.apiClient().Do(req)
 	if err != nil {
@@ -467,7 +467,7 @@ func (c *Checker) Apply(ctx context.Context) (err error) {
 	if err := replaceExecutable(exe, tmpPath); err != nil {
 		return err
 	}
-	tmpPath = "" // 已就位，勿删
+	tmpPath = ""                // 已就位，勿删
 	_ = os.Remove(exe + ".bak") // 清理历史 bak；失败可忽略
 
 	if err := syncFile(exe); err != nil {
@@ -528,7 +528,7 @@ func (c *Checker) downloadBytes(ctx context.Context, url string, limit int64) ([
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "mirrorhub/"+version.Version)
+	req.Header.Set("User-Agent", "cistern/"+version.Version)
 	resp, err := c.downloadClient().Do(req)
 	if err != nil {
 		return nil, err
@@ -587,7 +587,7 @@ func (c *Checker) downloadFile(ctx context.Context, url, dest string, expectSize
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "mirrorhub/"+version.Version)
+	req.Header.Set("User-Agent", "cistern/"+version.Version)
 	resp, err := c.downloadClient().Do(req)
 	if err != nil {
 		if stalled.Load() {

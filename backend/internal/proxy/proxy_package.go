@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/downloader"
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/downloader"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 // looksLikeNonArtifactBlobType 粗判 Docker blob 不应出现的类型（错误 JSON / manifest）。
@@ -158,13 +158,13 @@ func (s *Server) handlePackage(w http.ResponseWriter, r *http.Request, m *router
 		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("X-Cache", "MISS")
-		w.Header().Set("X-Mirrorhub-Strategy", "proxy")
+		w.Header().Set("X-Cistern-Strategy", "proxy")
 		downloader.ApplyHubFileMetaHeaders(w, hubMeta, nil)
 		if d, ok := plat.(platform.PackageHeaderDecorator); ok {
 			d.DecoratePackageHeaders(w)
 		}
 		if boost {
-			w.Header().Set("X-Mirrorhub-Boost", "1")
+			w.Header().Set("X-Cistern-Boost", "1")
 		}
 		w.WriteHeader(http.StatusOK)
 		return "miss", "proxy", nil

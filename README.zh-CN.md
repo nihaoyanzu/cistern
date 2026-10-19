@@ -199,11 +199,11 @@ flowchart LR
 
 ### 数据与缓存布局
 
-数据根：`MIRRORHUB_DATA_DIR`（默认 `./data`；Compose 多为 `/data`）。运营配置在 SQLite（`mirrorhub.db`）或经 `DATABASE_URL` 使用 Postgres。
+数据根：`CISTERN_DATA_DIR`（默认 `./data`；Compose 多为 `/data`）。运营配置在 SQLite（`cistern.db`）或经 `DATABASE_URL` 使用 Postgres。
 
 ```text
 data/
-├── mirrorhub.db          # 配置、管理员、轻量统计（未用 Postgres 时）
+├── cistern.db            # 配置、管理员、轻量统计（未用 Postgres 时）
 ├── logs/
 └── cache/
     ├── meta.db           # 缓存条目元数据（bbolt）

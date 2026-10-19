@@ -20,7 +20,7 @@ func ProbeGETHeaders(ctx context.Context, client *http.Client, rawURL string, ma
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("User-Agent", "mirrorhub-access-test/1.0")
+	req.Header.Set("User-Agent", "cistern-access-test/1.0")
 	req.Header.Set("Accept", "*/*")
 	copyExtraHeaders(req.Header, extra)
 	resp, err := client.Do(req)
@@ -44,7 +44,7 @@ func ProbeHEAD(ctx context.Context, client *http.Client, rawURL string) (int, er
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("User-Agent", "mirrorhub-access-test/1.0")
+	req.Header.Set("User-Agent", "cistern-access-test/1.0")
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
@@ -65,7 +65,7 @@ func ProbeRangeGETHeaders(ctx context.Context, client *http.Client, rawURL strin
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("User-Agent", "mirrorhub-access-test/1.0")
+	req.Header.Set("User-Agent", "cistern-access-test/1.0")
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 	copyExtraHeaders(req.Header, extra)
 	resp, err := client.Do(req)

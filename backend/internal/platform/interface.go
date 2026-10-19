@@ -10,8 +10,8 @@
 package platform
 
 import (
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 // IndexResult 是 TransformIndex 的输出。

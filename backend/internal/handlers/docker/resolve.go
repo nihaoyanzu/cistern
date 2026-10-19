@@ -37,7 +37,7 @@ type TargetArch struct {
 	OS, Architecture, Variant string
 }
 
-// DefaultTargetArchs 由 MirrorHub target_platforms 映射。
+// DefaultTargetArchs 由 Cistern target_platforms 映射。
 func DefaultTargetArchs(platforms []string) []TargetArch {
 	var out []TargetArch
 	seen := map[string]struct{}{}

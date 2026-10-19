@@ -11,17 +11,17 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/downloader"
-	"github.com/livehl/mirrorhub/internal/platform"
-	_ "github.com/livehl/mirrorhub/internal/platform/docker"
-	_ "github.com/livehl/mirrorhub/internal/platform/goproxy"
-	_ "github.com/livehl/mirrorhub/internal/platform/huggingface"
-	_ "github.com/livehl/mirrorhub/internal/platform/maven"
-	_ "github.com/livehl/mirrorhub/internal/platform/npm"
-	_ "github.com/livehl/mirrorhub/internal/platform/pypi"
-	"github.com/livehl/mirrorhub/internal/scheduler"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/downloader"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	_ "github.com/nihaoyanzu/cistern/internal/platform/docker"
+	_ "github.com/nihaoyanzu/cistern/internal/platform/goproxy"
+	_ "github.com/nihaoyanzu/cistern/internal/platform/huggingface"
+	_ "github.com/nihaoyanzu/cistern/internal/platform/maven"
+	_ "github.com/nihaoyanzu/cistern/internal/platform/npm"
+	_ "github.com/nihaoyanzu/cistern/internal/platform/pypi"
+	"github.com/nihaoyanzu/cistern/internal/scheduler"
 )
 
 type manualItem struct {

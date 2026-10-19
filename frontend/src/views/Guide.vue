@@ -150,10 +150,10 @@ onUnmounted(() => {
     <div class="relative mx-auto max-w-screen-xl px-4 py-8 sm:px-6 sm:py-10">
       <header class="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-line pb-6">
         <div class="flex items-center gap-3">
-          <img src="/favicon.svg" alt="MirrorHub" class="h-10 w-10" width="40" height="40" />
+          <img src="/favicon.svg" alt="Cistern" class="h-10 w-10" width="40" height="40" />
           <div>
             <div class="text-2xl font-semibold tracking-wide">
-              mirror<span class="text-accent">hub</span>
+              cis<span class="text-accent">tern</span>
             </div>
             <p class="mt-0.5 text-sm text-muted">{{ t('guide.tagline') }}</p>
           </div>

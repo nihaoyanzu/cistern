@@ -6,14 +6,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	dockerhandler "github.com/livehl/mirrorhub/internal/handlers/docker"
-	goproxyhandler "github.com/livehl/mirrorhub/internal/handlers/goproxy"
-	hfhandler "github.com/livehl/mirrorhub/internal/handlers/huggingface"
-	mavenhandler "github.com/livehl/mirrorhub/internal/handlers/maven"
-	npmhandler "github.com/livehl/mirrorhub/internal/handlers/npm"
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
-	"github.com/livehl/mirrorhub/internal/platid"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	dockerhandler "github.com/nihaoyanzu/cistern/internal/handlers/docker"
+	goproxyhandler "github.com/nihaoyanzu/cistern/internal/handlers/goproxy"
+	hfhandler "github.com/nihaoyanzu/cistern/internal/handlers/huggingface"
+	mavenhandler "github.com/nihaoyanzu/cistern/internal/handlers/maven"
+	npmhandler "github.com/nihaoyanzu/cistern/internal/handlers/npm"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/platid"
 )
 
 type localItem struct {

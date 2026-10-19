@@ -8,16 +8,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/config"
 )
 
 var (
-	hrefRe       = regexp.MustCompile(`(?i)href=["']([^"']+)["']`)
-	nameNorm     = regexp.MustCompile(`[-_.]+`)
-	wheelTag     = regexp.MustCompile(`(?i)^(.+)-([0-9][^-]*)-(.+)\.(whl|egg)$`)
-	sdistTag     = regexp.MustCompile(`(?i)^(.+)-([0-9].+)\.(tar\.gz|tar\.bz2|zip)$`)
+	hrefRe   = regexp.MustCompile(`(?i)href=["']([^"']+)["']`)
+	nameNorm = regexp.MustCompile(`[-_.]+`)
+	wheelTag = regexp.MustCompile(`(?i)^(.+)-([0-9][^-]*)-(.+)\.(whl|egg)$`)
+	sdistTag = regexp.MustCompile(`(?i)^(.+)-([0-9].+)\.(tar\.gz|tar\.bz2|zip)$`)
 	// 注意：不能写成 (单字符|多字符)，Go RE2 会优先匹配左侧单字符
-	reqNameRe = regexp.MustCompile(`(?i)^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)`)
+	reqNameRe    = regexp.MustCompile(`(?i)^([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)`)
 	constraintRe = regexp.MustCompile(`(?i)^(===|==|!=|~=|>=|<=|>|<)\s*([^\s,;]+)`)
 	verSplitRe   = regexp.MustCompile(`\s*,\s*`)
 )

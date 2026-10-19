@@ -199,11 +199,11 @@ flowchart LR
 
 ### Data layout
 
-Root: `MIRRORHUB_DATA_DIR` (default `./data`; Compose usually `/data`). Ops settings live in SQLite (`mirrorhub.db`) or Postgres via `DATABASE_URL`.
+Root: `CISTERN_DATA_DIR` (default `./data`; Compose usually `/data`). Ops settings live in SQLite (`cistern.db`) or Postgres via `DATABASE_URL`.
 
 ```text
 data/
-├── mirrorhub.db          # config, admin user, light stats (if not using Postgres)
+├── cistern.db            # config, admin user, light stats (if not using Postgres)
 ├── logs/
 └── cache/
     ├── meta.db           # cache entry metadata (bbolt)

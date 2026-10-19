@@ -435,7 +435,7 @@ export default {
     clearCacheConfirm: 'Confirm clear all cache? This action cannot be undone.',
     restartService: 'Restart service',
     restartServiceDesc: 'Re-exec the current process; active connections drop. Unavailable while an upgrade is in progress.',
-    restartServiceConfirm: 'Restart MirrorHub? Client connections will briefly interrupt.',
+    restartServiceConfirm: 'Restart Cistern? Client connections will briefly interrupt.',
     restarting: 'Restarting…',
     restartOk: 'Service is back',
     restartFailed: 'Restart failed or timed out',

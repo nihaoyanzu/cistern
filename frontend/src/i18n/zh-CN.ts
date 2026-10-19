@@ -435,7 +435,7 @@ export default {
     clearCacheConfirm: '确认清空全部缓存？此操作不可撤销。',
     restartService: '重启服务',
     restartServiceDesc: '重新加载当前进程；进行中的连接会中断，升级进行中时不可用',
-    restartServiceConfirm: '确认重启 MirrorHub 服务？客户端连接将短暂中断。',
+    restartServiceConfirm: '确认重启 Cistern 服务？客户端连接将短暂中断。',
     restarting: '正在重启…',
     restartOk: '服务已恢复',
     restartFailed: '重启失败或超时',

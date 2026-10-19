@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/downloader"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/downloader"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request, m *router.Match, cfg config.Config, pypi config.PlatformConfig, prefetch, boost bool, onAcquired func(), taskID string) (string, error) {
@@ -91,9 +91,9 @@ func serveMetadataHead(w http.ResponseWriter, entry *cache.Entry, boost bool, ca
 		w.Header().Set("ETag", entry.ETag)
 	}
 	w.Header().Set("X-Cache", cacheLabel)
-	w.Header().Set("X-Mirrorhub-Strategy", "cache")
+	w.Header().Set("X-Cistern-Strategy", "cache")
 	if boost {
-		w.Header().Set("X-Mirrorhub-Boost", "1")
+		w.Header().Set("X-Cistern-Boost", "1")
 	}
 	w.WriteHeader(http.StatusOK)
 	switch strings.ToUpper(cacheLabel) {

@@ -5,10 +5,10 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 func init() {
@@ -54,21 +54,21 @@ func MatchPyPI(path string, r Routes) *router.Match {
 			IsIndex:        true,
 			SmallFileBoost: true,
 		}
-		case strings.HasPrefix(path, "/packages") && strings.HasSuffix(path, ".metadata"):
-			if !pypihandler.IsPackageArtifactPath(path) {
-				return nil
-			}
-			metaUpstream := strings.TrimRight(strings.TrimSpace(r.MetadataUpstream), "/")
-			if metaUpstream == "" {
-				return nil
-			}
-			return &router.Match{
-				Platform:     "pypi",
-				Strategy:     router.StrategyProxy,
-				UpstreamBase: metaUpstream,
-				TargetURL:    metaUpstream + path,
-				IsMetadata:   true,
-			}
+	case strings.HasPrefix(path, "/packages") && strings.HasSuffix(path, ".metadata"):
+		if !pypihandler.IsPackageArtifactPath(path) {
+			return nil
+		}
+		metaUpstream := strings.TrimRight(strings.TrimSpace(r.MetadataUpstream), "/")
+		if metaUpstream == "" {
+			return nil
+		}
+		return &router.Match{
+			Platform:     "pypi",
+			Strategy:     router.StrategyProxy,
+			UpstreamBase: metaUpstream,
+			TargetURL:    metaUpstream + path,
+			IsMetadata:   true,
+		}
 	case strings.HasPrefix(path, "/packages"):
 		// 仅发行文件；裸 /packages 或目录页会命中上游 HTML 浏览页，一律不代理
 		if !pypihandler.IsPackageArtifactPath(path) {

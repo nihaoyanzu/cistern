@@ -12,9 +12,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/ratelimit"
-	"github.com/livehl/mirrorhub/internal/traffic"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/traffic"
 )
 
 type Options struct {

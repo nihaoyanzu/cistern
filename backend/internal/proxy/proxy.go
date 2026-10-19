@@ -13,23 +13,23 @@ import (
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/config"
-	"github.com/livehl/mirrorhub/internal/downloader"
-	npmhandler "github.com/livehl/mirrorhub/internal/handlers/npm"
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
-	"github.com/livehl/mirrorhub/internal/metrics"
-	"github.com/livehl/mirrorhub/internal/platform"
-	_ "github.com/livehl/mirrorhub/internal/platform/docker"      // 注册 Docker 平台
-	_ "github.com/livehl/mirrorhub/internal/platform/goproxy"     // 注册 Go modules 平台
-	_ "github.com/livehl/mirrorhub/internal/platform/huggingface" // 注册 Hugging Face 平台
-	_ "github.com/livehl/mirrorhub/internal/platform/maven"       // 注册 Maven/Gradle 平台（须在 npm 之前）
-	_ "github.com/livehl/mirrorhub/internal/platform/npm"         // 注册 npm 平台
-	_ "github.com/livehl/mirrorhub/internal/platform/pypi"        // 注册 PyPI 平台
-	"github.com/livehl/mirrorhub/internal/ratelimit"
-	"github.com/livehl/mirrorhub/internal/router"
-	"github.com/livehl/mirrorhub/internal/scheduler"
-	"github.com/livehl/mirrorhub/internal/traffic"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/downloader"
+	npmhandler "github.com/nihaoyanzu/cistern/internal/handlers/npm"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/metrics"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	_ "github.com/nihaoyanzu/cistern/internal/platform/docker"      // 注册 Docker 平台
+	_ "github.com/nihaoyanzu/cistern/internal/platform/goproxy"     // 注册 Go modules 平台
+	_ "github.com/nihaoyanzu/cistern/internal/platform/huggingface" // 注册 Hugging Face 平台
+	_ "github.com/nihaoyanzu/cistern/internal/platform/maven"       // 注册 Maven/Gradle 平台（须在 npm 之前）
+	_ "github.com/nihaoyanzu/cistern/internal/platform/npm"         // 注册 npm 平台
+	_ "github.com/nihaoyanzu/cistern/internal/platform/pypi"        // 注册 PyPI 平台
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/scheduler"
+	"github.com/nihaoyanzu/cistern/internal/traffic"
 )
 
 // revalResult 条件请求续期的结果，供并发请求共享
@@ -107,7 +107,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prio := scheduler.PriorityInteractive
-	if r.Header.Get("X-Mirrorhub-Priority") == "prefetch" {
+	if r.Header.Get("X-Cistern-Priority") == "prefetch" || r.Header.Get("X-Mirrorhub-Priority") == "prefetch" {
 		prio = scheduler.PriorityPrefetch
 	}
 
@@ -210,9 +210,9 @@ func writeProxyHeaders(w http.ResponseWriter, respHeader http.Header, ct string,
 		w.Header().Set("Content-Type", ct)
 	}
 	w.Header().Set("X-Cache", cacheLabel)
-	w.Header().Set("X-Mirrorhub-Strategy", strategy)
+	w.Header().Set("X-Cistern-Strategy", strategy)
 	if boost {
-		w.Header().Set("X-Mirrorhub-Boost", "1")
+		w.Header().Set("X-Cistern-Boost", "1")
 	}
 	w.WriteHeader(status)
 }
@@ -304,9 +304,9 @@ func (s *Server) serveDownloadResultFull(w http.ResponseWriter, res *downloader.
 	} else {
 		w.Header().Set("X-Cache", "MISS")
 	}
-	w.Header().Set("X-Mirrorhub-Strategy", strat)
+	w.Header().Set("X-Cistern-Strategy", strat)
 	if boost {
-		w.Header().Set("X-Mirrorhub-Boost", "1")
+		w.Header().Set("X-Cistern-Boost", "1")
 	}
 	if ent.RepoCommit != "" {
 		w.Header().Set("X-Repo-Commit", ent.RepoCommit)

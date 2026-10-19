@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
 )
 
 func (e *Engine) prefetchAllow(opt Options) func() bool {

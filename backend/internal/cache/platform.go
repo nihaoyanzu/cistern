@@ -3,7 +3,7 @@ package cache
 import (
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/platid"
+	"github.com/nihaoyanzu/cistern/internal/platid"
 )
 
 // knownPlatforms 与 platid.Order 一致，供外部枚举。

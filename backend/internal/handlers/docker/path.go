@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/cachekey"
+	"github.com/nihaoyanzu/cistern/internal/cachekey"
 )
 
 var (

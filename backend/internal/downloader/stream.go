@@ -17,9 +17,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/metrics"
-	"github.com/livehl/mirrorhub/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/metrics"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
 )
 
 const (
@@ -225,9 +225,9 @@ func (e *Engine) streamToClientAndCache(ctx context.Context, w http.ResponseWrit
 				w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
 			}
 			w.Header().Set("X-Cache", "MISS")
-			w.Header().Set("X-Mirrorhub-Strategy", "stream")
+			w.Header().Set("X-Cistern-Strategy", "stream")
 			if opt.Boost {
-				w.Header().Set("X-Mirrorhub-Boost", "1")
+				w.Header().Set("X-Cistern-Boost", "1")
 			}
 			// HF：把重定向链上捕获的 X-Repo-Commit 等写回客户端
 			ApplyHubFileMetaHeaders(w, hubMeta, resp.Header)

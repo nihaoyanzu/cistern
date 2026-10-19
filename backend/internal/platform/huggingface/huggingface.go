@@ -9,10 +9,10 @@ import (
 	"encoding/hex"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	hfhandler "github.com/livehl/mirrorhub/internal/handlers/huggingface"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	hfhandler "github.com/nihaoyanzu/cistern/internal/handlers/huggingface"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 func init() {

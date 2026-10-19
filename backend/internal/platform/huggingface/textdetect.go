@@ -1,8 +1,8 @@
 package huggingface
 
 import (
-	hfhandler "github.com/livehl/mirrorhub/internal/handlers/huggingface"
-	"github.com/livehl/mirrorhub/internal/platform"
+	hfhandler "github.com/nihaoyanzu/cistern/internal/handlers/huggingface"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const textDetectPriorityHF = 80

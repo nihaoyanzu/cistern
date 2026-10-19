@@ -4,8 +4,8 @@ import (
 	"strings"
 	"unicode"
 
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
-	"github.com/livehl/mirrorhub/internal/platform"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const textDetectPriorityPyPI = 0

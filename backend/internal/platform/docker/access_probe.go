@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	dockerhandler "github.com/livehl/mirrorhub/internal/handlers/docker"
-	"github.com/livehl/mirrorhub/internal/platform"
+	dockerhandler "github.com/nihaoyanzu/cistern/internal/handlers/docker"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 func (p *DockerPlatform) ProbeAccess(env platform.AccessProbeEnv) []platform.AccessProbeCheck {
@@ -72,7 +72,7 @@ func fetchProbeManifest(env platform.AccessProbeEnv, tokens *dockerhandler.Token
 		if err != nil {
 			return 0, nil, nil, err
 		}
-		req.Header.Set("User-Agent", "mirrorhub-access-test/1.0")
+		req.Header.Set("User-Agent", "cistern-access-test/1.0")
 		req.Header.Set("Accept", dockerhandler.DefaultManifestAccept())
 		if withAuth {
 			if tok, err := tokens.Bearer(env.Ctx, repo); err == nil && tok != "" {

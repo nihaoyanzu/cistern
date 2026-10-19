@@ -20,21 +20,21 @@ COPY backend/ .
 COPY --from=frontend /src/dist/ ./internal/webui/dist/
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 	go build -trimpath \
-	-ldflags="-s -w -X github.com/livehl/mirrorhub/internal/version.Version=${VERSION}" \
-	-o /out/mirrorhub ./cmd/mirrorhub
+	-ldflags="-s -w -X github.com/nihaoyanzu/cistern/internal/version.Version=${VERSION}" \
+	-o /out/cistern ./cmd/cistern
 
 # 运行（单进程：下载服务 + 管理台 + 内置 SQLite）
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata \
 	&& mkdir -p /data
 WORKDIR /app
-COPY --from=backend /out/mirrorhub /app/mirrorhub
+COPY --from=backend /out/cistern /app/cistern
 
-ENV MIRRORHUB_DATA_DIR=/data \
-	MIRRORHUB_PROXY_ADDR=:18081 \
-	MIRRORHUB_ADMIN_ADDR=:18082 \
-	MIRRORHUB_LOG_LEVEL=info
+ENV CISTERN_DATA_DIR=/data \
+	CISTERN_PROXY_ADDR=:18081 \
+	CISTERN_ADMIN_ADDR=:18082 \
+	CISTERN_LOG_LEVEL=info
 
 VOLUME ["/data"]
 EXPOSE 18081 18082
-ENTRYPOINT ["/app/mirrorhub"]
+ENTRYPOINT ["/app/cistern"]

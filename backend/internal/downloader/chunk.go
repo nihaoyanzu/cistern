@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
 )
 
 func (e *Engine) fetchChunk(ctx context.Context, pl *ratelimit.PlatformLimiter, opt Options, lease *prefetchLease, f *os.File, start, end, knownSize int64, identityETag string, authCanRetry bool, onBlocked func(), onBytes func(int64)) error {

@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	dockerhandler "github.com/livehl/mirrorhub/internal/handlers/docker"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	dockerhandler "github.com/nihaoyanzu/cistern/internal/handlers/docker"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const prefetchPriorityDocker = 70

@@ -12,7 +12,7 @@ import (
 
 	"go.uber.org/zap"
 
-	pypihandler "github.com/livehl/mirrorhub/internal/handlers/pypi"
+	pypihandler "github.com/nihaoyanzu/cistern/internal/handlers/pypi"
 )
 
 // 包名列表独立于索引 HTML 缓存：落盘后重启可直接用，到期再后台刷新
@@ -21,7 +21,8 @@ const (
 	catalogCheckEvery   = 5 * time.Minute
 	catalogPublishChunk = 5000
 	catalogFileName     = "pypi-names.txt"
-	catalogFileMagic    = "# mirrorhub-catalog-v1"
+	catalogFileMagic    = "# cistern-catalog-v1"
+	catalogFileMagicOld = "# mirrorhub-catalog-v1"
 )
 
 func (s *Server) catalogDir() string {
@@ -252,7 +253,11 @@ func (s *Server) loadCatalogFile() (names []string, at time.Time, url string, er
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 1024*1024)
 
-	if !sc.Scan() || strings.TrimSpace(sc.Text()) != catalogFileMagic {
+	if !sc.Scan() {
+		return nil, time.Time{}, "", fmt.Errorf("invalid catalog magic")
+	}
+	magic := strings.TrimSpace(sc.Text())
+	if magic != catalogFileMagic && magic != catalogFileMagicOld {
 		return nil, time.Time{}, "", fmt.Errorf("invalid catalog magic")
 	}
 	for sc.Scan() {

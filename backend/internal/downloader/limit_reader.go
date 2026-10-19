@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/ratelimit"
-	"github.com/livehl/mirrorhub/internal/traffic"
+	"github.com/nihaoyanzu/cistern/internal/ratelimit"
+	"github.com/nihaoyanzu/cistern/internal/traffic"
 )
 
 func cloneHeader(h http.Header) http.Header {

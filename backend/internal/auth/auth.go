@@ -13,7 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/livehl/mirrorhub/internal/store"
+	"github.com/nihaoyanzu/cistern/internal/store"
 )
 
 var ErrInvalidCredentials = errors.New("用户名或密码错误")
@@ -31,7 +31,7 @@ type claims struct {
 	jwt.RegisteredClaims
 }
 
-// New 使用 JWT 鉴权（无状态，不落库）。secret 优先 MIRRORHUB_JWT_SECRET，否则持久化到 dataDir/jwt_secret。
+// New 使用 JWT 鉴权（无状态，不落库）。secret 优先 CISTERN_JWT_SECRET（兼容 MIRRORHUB_JWT_SECRET），否则持久化到 dataDir/jwt_secret。
 func New(db *store.Store, dataDir string) (*Service, error) {
 	secret, err := loadOrCreateSecret(dataDir)
 	if err != nil {
@@ -51,6 +51,9 @@ func New(db *store.Store, dataDir string) (*Service, error) {
 }
 
 func loadOrCreateSecret(dataDir string) ([]byte, error) {
+	if v := os.Getenv("CISTERN_JWT_SECRET"); v != "" {
+		return []byte(v), nil
+	}
 	if v := os.Getenv("MIRRORHUB_JWT_SECRET"); v != "" {
 		return []byte(v), nil
 	}

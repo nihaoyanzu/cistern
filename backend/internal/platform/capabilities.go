@@ -7,8 +7,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/config"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/config"
 )
 
 // LocalProber 本地短路探活（如 docker /v2、goproxy sumdb supported），不经 Match。
@@ -22,10 +22,10 @@ type UpstreamAuther interface {
 	InjectUpstreamAuth(ctx context.Context, headers http.Header, cfg config.Config, reqPath string) error
 }
 
-	// UpstreamAuthInvalidator 上游 401 时清票；challenge 为响应头（可含 WWW-Authenticate），可为 nil。
-	type UpstreamAuthInvalidator interface {
-		InvalidateUpstreamAuth(cfg config.Config, reqPath string, challenge http.Header)
-	}
+// UpstreamAuthInvalidator 上游 401 时清票；challenge 为响应头（可含 WWW-Authenticate），可为 nil。
+type UpstreamAuthInvalidator interface {
+	InvalidateUpstreamAuth(cfg config.Config, reqPath string, challenge http.Header)
+}
 
 // IndexKeyer 索引缓存键 Accept 变体后缀（不含前导冒号）；空串表示无后缀。
 type IndexKeyer interface {
@@ -90,18 +90,18 @@ type TextDetectResult struct {
 	Kind    string // 如 npm_lock、docker_image，供审计
 }
 
-	// TextDetector 管理面粘贴文本识别。
-	type TextDetector interface {
-		// TextDetectPriority 越大越优先。
-		TextDetectPriority() int
-		LookLikePrefetchText(text string) bool
-		ParsePrefetchText(text string) (TextDetectResult, bool)
-	}
+// TextDetector 管理面粘贴文本识别。
+type TextDetector interface {
+	// TextDetectPriority 越大越优先。
+	TextDetectPriority() int
+	LookLikePrefetchText(text string) bool
+	ParsePrefetchText(text string) (TextDetectResult, bool)
+}
 
-	// PrefetchTextResolver 粘贴解析可回源（如 Maven POM 沿 parent/BOM 补全版本）。
-	type PrefetchTextResolver interface {
-		ResolvePrefetchText(env PrefetchExpandEnv, text string) (TextDetectResult, bool)
-	}
+// PrefetchTextResolver 粘贴解析可回源（如 Maven POM 沿 parent/BOM 补全版本）。
+type PrefetchTextResolver interface {
+	ResolvePrefetchText(env PrefetchExpandEnv, text string) (TextDetectResult, bool)
+}
 
 // AccessProbeCheck 单条上游探测结果。
 type AccessProbeCheck struct {

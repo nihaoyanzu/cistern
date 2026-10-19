@@ -1,8 +1,8 @@
 package npm
 
 import (
-	npmhandler "github.com/livehl/mirrorhub/internal/handlers/npm"
-	"github.com/livehl/mirrorhub/internal/platform"
+	npmhandler "github.com/nihaoyanzu/cistern/internal/handlers/npm"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const textDetectPriorityNPM = 100

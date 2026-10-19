@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/store"
+	"github.com/nihaoyanzu/cistern/internal/store"
 )
 
 // Bootstrap 仅来自 .env，进程启动必需
@@ -114,7 +114,7 @@ type PlatformConfig struct {
 	Enabled          bool           `json:"enabled"`
 	Upstream         string         `json:"upstream"`
 	FileUpstream     string         `json:"file_upstream"`
-	MetadataUpstream string         `json:"metadata_upstream"` // PEP 658；为空时回退到 file_upstream。
+	MetadataUpstream string         `json:"metadata_upstream"`        // PEP 658；为空时回退到 file_upstream。
 	UpstreamToken    string         `json:"upstream_token,omitempty"` // 可选；HF 等回源 Bearer
 	Download         DownloadConfig `json:"download"`
 	// RateLimit 已迁到全局 Config.RateLimit；指针 + omitempty 避免零值结构体仍被编码。
@@ -203,13 +203,13 @@ type Manager struct {
 }
 
 func LoadBootstrap() Bootstrap {
-	dataDir := envOr("MIRRORHUB_DATA_DIR", "./data")
+	dataDir := envOr("CISTERN_DATA_DIR", "./data")
 	return Bootstrap{
-		ProxyAddr:   envOr("MIRRORHUB_PROXY_ADDR", ":8081"),
-		AdminAddr:   envOr("MIRRORHUB_ADMIN_ADDR", ":8082"),
+		ProxyAddr:   envOr("CISTERN_PROXY_ADDR", ":8081"),
+		AdminAddr:   envOr("CISTERN_ADMIN_ADDR", ":8082"),
 		DataDir:     dataDir,
 		DatabaseURL: os.Getenv("DATABASE_URL"),
-		LogLevel:    envOr("MIRRORHUB_LOG_LEVEL", "info"),
+		LogLevel:    envOr("CISTERN_LOG_LEVEL", "info"),
 	}
 }
 
@@ -694,6 +694,12 @@ func NormalizeTargetPlatform(s string) string {
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	// 旧部署仍写 MIRRORHUB_* 时继续生效
+	if strings.HasPrefix(key, "CISTERN_") {
+		if v := os.Getenv("MIRRORHUB_" + strings.TrimPrefix(key, "CISTERN_")); v != "" {
+			return v
+		}
 	}
 	return fallback
 }

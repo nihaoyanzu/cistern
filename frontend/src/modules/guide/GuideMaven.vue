@@ -22,7 +22,7 @@ const snippets = computed<GuideSnippet[]>(() => [
     text: `<settings>
   <mirrors>
     <mirror>
-      <id>mirrorhub</id>
+      <id>cistern</id>
       <mirrorOf>*</mirrorOf>
       <url>${props.baseURL}/</url>
     </mirror>

@@ -14,7 +14,7 @@ backend/.env
 # Go
 backend/data/
 backend/bin/
-backend/mirrorhub
+backend/cistern
 *.exe
 *.exe~
 *.test

@@ -7,9 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	mavenhandler "github.com/livehl/mirrorhub/internal/handlers/maven"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	mavenhandler "github.com/nihaoyanzu/cistern/internal/handlers/maven"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const textDetectPriorityMaven = 70

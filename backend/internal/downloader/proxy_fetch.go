@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 // ProxyHEAD 轻量级 HEAD 请求，仅返回状态码；用于条件请求续期（If-None-Match）

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	hfhandler "github.com/livehl/mirrorhub/internal/handlers/huggingface"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	hfhandler "github.com/nihaoyanzu/cistern/internal/handlers/huggingface"
 )
 
 func (p *HuggingFacePlatform) InjectUpstreamAuth(_ context.Context, headers http.Header, cfg config.Config, _ string) error {

@@ -7,10 +7,10 @@ package goproxy
 import (
 	"strings"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	goproxyhandler "github.com/livehl/mirrorhub/internal/handlers/goproxy"
-	"github.com/livehl/mirrorhub/internal/platform"
-	"github.com/livehl/mirrorhub/internal/router"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	goproxyhandler "github.com/nihaoyanzu/cistern/internal/handlers/goproxy"
+	"github.com/nihaoyanzu/cistern/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/router"
 )
 
 func init() {

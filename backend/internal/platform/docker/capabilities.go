@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/livehl/mirrorhub/internal/config"
-	dockerhandler "github.com/livehl/mirrorhub/internal/handlers/docker"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/config"
+	dockerhandler "github.com/nihaoyanzu/cistern/internal/handlers/docker"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 // DockerPlatform 实现 platform.Platform 及可选能力。

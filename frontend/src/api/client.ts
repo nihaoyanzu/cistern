@@ -22,7 +22,7 @@ export interface PublicGuide {
   modules: PublicGuideModule[]
 }
 
-const TOKEN_KEY = 'mirrorhub_session'
+const TOKEN_KEY = 'cistern_session'
 
 export function getToken(): string {
   return localStorage.getItem(TOKEN_KEY) || ''

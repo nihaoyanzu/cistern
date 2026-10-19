@@ -151,9 +151,9 @@ func ReconstructTarballURL(name, version string) string {
 }
 
 var (
-	pnpmPkgHeaderRe = regexp.MustCompile(`(?m)^ {2}('([^']+)'|"([^"]+)"|([^:\n]+)): *$`)
-	pnpmIntegrityRe = regexp.MustCompile(`(?m)^\s+integrity:\s*(\S+)`)
-	pnpmTarballRe   = regexp.MustCompile(`(?m)^\s+tarball:\s*(\S+)`)
+	pnpmPkgHeaderRe       = regexp.MustCompile(`(?m)^ {2}('([^']+)'|"([^"]+)"|([^:\n]+)): *$`)
+	pnpmIntegrityRe       = regexp.MustCompile(`(?m)^\s+integrity:\s*(\S+)`)
+	pnpmTarballRe         = regexp.MustCompile(`(?m)^\s+tarball:\s*(\S+)`)
 	pnpmResolutionBlockRe = regexp.MustCompile(`(?ms)^ {2}(?:'([^']+)'|"([^"]+)"|([^:\n]+)):.*?(?:\n {4}resolution: \{([^}]*)\}|\n {4}resolution:\n((?: {6}.+\n)*))`)
 )
 
@@ -249,7 +249,7 @@ func findYAMLValue(text, key string) string {
 func splitPnpmPackageKey(key string) (name, version string) {
 	key = strings.TrimSpace(key)
 	key = strings.Trim(key, `"'`)
-	// 形式: /lodash@4.17.21 或 lodash@4.17.21 或 /@babel/core@7.0.0(@babel/...) 
+	// 形式: /lodash@4.17.21 或 lodash@4.17.21 或 /@babel/core@7.0.0(@babel/...)
 	key = strings.TrimPrefix(key, "/")
 	// 去掉 peer 后缀 (@...)
 	if i := strings.Index(key, "("); i >= 0 {

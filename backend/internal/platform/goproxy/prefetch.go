@@ -8,9 +8,9 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/livehl/mirrorhub/internal/cache"
-	goproxyhandler "github.com/livehl/mirrorhub/internal/handlers/goproxy"
-	"github.com/livehl/mirrorhub/internal/platform"
+	"github.com/nihaoyanzu/cistern/internal/cache"
+	goproxyhandler "github.com/nihaoyanzu/cistern/internal/handlers/goproxy"
+	"github.com/nihaoyanzu/cistern/internal/platform"
 )
 
 const prefetchPriorityGoproxy = 80

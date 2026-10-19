@@ -3,7 +3,7 @@ package maven
 import (
 	"net/http"
 
-	mavenhandler "github.com/livehl/mirrorhub/internal/handlers/maven"
+	mavenhandler "github.com/nihaoyanzu/cistern/internal/handlers/maven"
 )
 
 func (p *MavenPlatform) PackageCacheIdentity(_, _ string, _ http.Header, defaultKey string) (string, string) {
