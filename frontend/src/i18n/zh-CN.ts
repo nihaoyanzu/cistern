@@ -99,7 +99,7 @@ export default {
     mavenGradle: 'Gradle repositories',
   },
   dashboard: {
-    title: '控制台',
+    title: '仪表盘',
     subtitle: '流量、缓存与调度总览',
     moduleEntry: '进入 PyPI 工作台',
     pull: 'Pull',

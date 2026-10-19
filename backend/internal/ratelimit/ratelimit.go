@@ -337,9 +337,8 @@ func (p *PlatformLimiter) AcquireConn(ctx context.Context, interactive bool) err
 				limit = 1
 			}
 		}
-		under := p.activeConns < limit
-		p.mu.Unlock()
-		if !under {
+		if p.activeConns >= limit {
+			p.mu.Unlock()
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -347,15 +346,19 @@ func (p *PlatformLimiter) AcquireConn(ctx context.Context, interactive bool) err
 			}
 			continue
 		}
+		// 与上限判断同一把锁里占槽，避免多个请求同时通过检查后把 activeConns 打超。
+		sem := p.connSem
+		p.activeConns++
+		p.mu.Unlock()
 		select {
-		case p.connSem <- struct{}{}:
-			p.mu.Lock()
-			p.activeConns++
-			p.mu.Unlock()
+		case sem <- struct{}{}:
 			return nil
-		case <-ctx.Done():
-			return ctx.Err()
 		default:
+			p.mu.Lock()
+			if p.activeConns > 0 {
+				p.activeConns--
+			}
+			p.mu.Unlock()
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

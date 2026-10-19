@@ -23,7 +23,7 @@ const loading = ref(true)
 const guide = ref<PublicGuide | null>(null)
 const stats = ref<SystemStats | null>(null)
 const copied = ref('')
-/** 一级：控制台 / 模块接入 */
+/** 一级：仪表盘 / 模块接入 */
 const mainTab = ref<'console' | 'setup'>('console')
 /** 二级：模块说明 */
 const moduleTab = ref('')

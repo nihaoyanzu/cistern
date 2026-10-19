@@ -42,9 +42,9 @@ const navGroups = computed((): NavGroup[] => {
   const groups: NavGroup[] = [
     {
       id: 'dashboard',
-      label: t('nav.dashboard'),
+      label: t('dashboard.title'),
       kind: 'item',
-      links: [{ to: '/dashboard', icon: 'dash', text: t('nav.dashboard') }],
+      links: [{ to: '/dashboard', icon: 'dash', text: t('dashboard.title') }],
     },
     {
       id: 'access',

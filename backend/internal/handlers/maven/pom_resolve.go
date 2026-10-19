@@ -326,6 +326,8 @@ func applyDependencyManagement(
 					msg += ": " + err.Error()
 				}
 				*skipped = append(*skipped, msg)
+				// 展开失败仍入队 BOM 本身，避免整份 POM 因上游 404 无法预取
+				managed[managedKey(g, a, "pom", "")] = managedCoord{Version: v, Packaging: "pom"}
 				continue
 			}
 			bom, err := parsePomDocument(string(body))

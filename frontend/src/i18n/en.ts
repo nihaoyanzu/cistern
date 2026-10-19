@@ -98,7 +98,7 @@ export default {
     mavenGradle: 'Gradle repositories',
   },
   dashboard: {
-    title: 'Console',
+    title: 'Dashboard',
     subtitle: 'Traffic, cache and scheduler overview',
     moduleEntry: 'Open PyPI workspace',
     pull: 'Pull',
